@@ -117,7 +117,7 @@ async def test_next_today_wins_then_tomorrow(
     entity_id = next_entity(hass, entry)
     state = hass.states.get(entity_id)
     assert state.state == "Today: Mixed waste"
-    assert state.attributes["until"] == "09:00"
+    assert state.attributes["until"] == "08:00"
     await tick(hass, freezer, at(13, 9, 0, 5))
     assert hass.states.get(entity_id).state == "Tomorrow: Packaging"
     await unload(hass, entry)
@@ -143,4 +143,13 @@ async def test_unique_ids_stable(hass: HomeAssistant, freezer: FrozenDateTimeFac
     registry = er.async_get(hass)
     assert registry.async_get_entity_id("sensor", "bin_day", f"{entry.entry_id}_mko")
     assert registry.async_get_entity_id("sensor", "bin_day", f"{entry.entry_id}_next")
+    await unload(hass, entry)
+
+
+async def test_next_today_sl(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> None:
+    hass.config.language = "sl"
+    freezer.move_to(at(13, 7, 30))
+    entry = make_entry()
+    assert await setup(hass, entry, FakeSource({"mko": [d(13)]}))
+    assert hass.states.get(next_entity(hass, entry)).state == "Danes: Mixed waste"
     await unload(hass, entry)

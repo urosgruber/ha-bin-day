@@ -14,7 +14,7 @@ from homeassistant.util import dt as dt_util
 from .const import CONF_COLLECTION_TIME
 from .coordinator import BinDayCoordinator, _parse_time, get_type_configs
 from .entity import BinDayEntity
-from .schedule import Resolved, done_at, due_types, is_done
+from .schedule import Resolved, due_types, is_done
 from .texts import NONE_STATE, lang_for, next_state
 
 
@@ -124,13 +124,12 @@ class BinDayNextSensor(BinDayEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         _kind, keys, day, done = self._compute()
         collection = self._collection_time()
-        until = done_at(collection)
         return {
             "today": self.coordinator.data.today.isoformat(),
             "types": keys,
             "date": day.isoformat() if day else None,
             "days": (day - self.coordinator.data.today).days if day else None,
             "done": done,
-            "until": until.strftime("%H:%M") if collection else None,
+            "until": collection.strftime("%H:%M") if collection else None,
             "entry_id": self._entry.entry_id,
         }
