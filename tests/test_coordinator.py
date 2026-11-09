@@ -250,6 +250,50 @@ async def test_first_fetch_failure_with_history_does_not_fail_setup(
     await unload(hass, entry)
 
 
+async def test_real_dates_survive_restart_while_source_down(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, hass_storage
+) -> None:
+    """A restart while the source fails keeps the last real dates as real."""
+    freezer.move_to(at(9, 9))
+    entry = make_entry()
+    assert await setup(hass, entry, FakeSource({"mko": [d(13), d(27)], "emb": [], "bio": []}))
+    stored = hass_storage[f"bin_day.{entry.entry_id}"]["data"]
+    assert stored["real"]["mko"] == ["2026-11-13", "2026-11-27"]
+    await unload(hass, entry)
+
+    freezer.move_to(at(10, 9))
+    assert await setup(hass, entry, FakeSource(SourceError("down")))
+    res = entry.runtime_data.data.resolved["mko"]
+    assert res.status == "real"
+    assert res.estimate is False
+    assert res.date == d(13)
+    await unload(hass, entry)
+
+
+async def test_corrupt_stored_real_dates_are_skipped(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, hass_storage, caplog
+) -> None:
+    """Corrupt stored real dates are skipped with a warning; good ones load."""
+    freezer.move_to(at(9, 9))
+    entry = make_entry()
+    hass_storage[f"bin_day.{entry.entry_id}"] = {
+        "version": 1,
+        "minor_version": 1,
+        "key": f"bin_day.{entry.entry_id}",
+        "data": {
+            "types": {"mko": TypeHistory(last_real=d(6), ever_seen=True).to_dict()},
+            "source_warned": False,
+            "real": {"mko": ["2026-11-13", "garbage", 5], "emb": "not-a-list"},
+        },
+    }
+    assert await setup(hass, entry, FakeSource(SourceError("down")))
+    data = entry.runtime_data.data
+    assert data.resolved["mko"].status == "real"
+    assert data.resolved["mko"].date == d(13)
+    assert "corrupt" in caplog.text.lower()
+    await unload(hass, entry)
+
+
 async def test_first_fetch_failure_without_history_retries_setup(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:

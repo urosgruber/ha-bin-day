@@ -80,6 +80,27 @@ def _parse_time(value: Any) -> time | None:
     return None
 
 
+def _load_dates(key: str, raw: Any) -> list[date]:
+    """Parse stored ISO dates; skip corrupt values with a warning."""
+    if not isinstance(raw, list):
+        _LOGGER.warning("Stored real dates of type %s are corrupt; ignoring them", key)
+        return []
+    dates: list[date] = []
+    for value in raw:
+        try:
+            if not isinstance(value, str):
+                raise TypeError("not a string")
+            dates.append(date.fromisoformat(value))
+        except (TypeError, ValueError) as err:
+            _LOGGER.warning(
+                "Stored real date %r of type %s is corrupt (%s); skipping it",
+                value,
+                key,
+                err,
+            )
+    return dates
+
+
 def _minus(value: time, delta: timedelta) -> time:
     moment = datetime.combine(date(2000, 1, 2), value) - delta
     return moment.time()
@@ -141,12 +162,20 @@ class BinDayCoordinator(DataUpdateCoordinator[BinDayData]):
                     )
                     self.history[key] = TypeHistory()
         self.source_warned = bool(stored.get("source_warned", False))
+        real = stored.get("real")
+        if isinstance(real, dict):
+            for key, raw in real.items():
+                self._last_real_dates[key] = _load_dates(key, raw)
 
     async def async_save(self) -> None:
-        """Persist the history and the warning flag."""
+        """Persist the history, the last real dates and the warning flag."""
         await self._store.async_save(
             {
                 "types": {key: hist.to_dict() for key, hist in self.history.items()},
+                "real": {
+                    key: [value.isoformat() for value in dates]
+                    for key, dates in self._last_real_dates.items()
+                },
                 "source_warned": self.source_warned,
             }
         )
