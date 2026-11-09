@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import voluptuous as vol
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.data_entry_flow import FlowResultType, InvalidData
 
 from custom_components.bin_day.const import (
     CONF_COLLECTION_TIME,
@@ -138,7 +139,7 @@ async def test_options_reminders(hass: HomeAssistant, freezer: FrozenDateTimeFac
                 flow_id,
                 {CONF_REMINDERS_ENABLED: True, CONF_NOTIFY_TARGETS: ["light.x"]},
             )
-        except Exception:  # noqa: BLE001 - schema rejection
+        except (InvalidData, vol.Invalid):
             pass
         else:
             raise AssertionError("expected a schema error")
@@ -220,4 +221,61 @@ async def test_options_reload_entry(hass: HomeAssistant, freezer: FrozenDateTime
     # The new collection time shows in the next sensor's attribute.
     states = [s for s in hass.states.async_all("sensor") if "until" in s.attributes]
     assert states and states[0].attributes["until"] == "10:00"
+    await unload(hass, entry)
+
+
+async def _save_type(hass, entry, key, **fields):
+    result = await _pick_type(hass, entry, key)
+    base = {"name": get_types(entry)[key]["name"], "icon": "mdi:recycle", "color": "#112233",
+            "estimate": True}
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {**base, **fields}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+
+
+async def test_options_editing_type_keeps_other_type_override(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    entry = await _entry(hass, freezer)
+    with patch("custom_components.bin_day._create_source", return_value=FakeSource({})):
+        await _save_type(hass, entry, "emb", color="#aa0000", interval=21)
+        await _save_type(hass, entry, "bio", color="#00bb00")
+    types = get_types(entry)
+    assert types["emb"]["color"] == "#aa0000"
+    assert types["emb"]["interval"] == 21
+    assert types["bio"]["color"] == "#00bb00"
+    await unload(hass, entry)
+
+
+async def test_options_sections_keep_each_other(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    entry = await _entry(hass, freezer)
+    with patch("custom_components.bin_day._create_source", return_value=FakeSource({})):
+        await _save_type(hass, entry, "emb", color="#aa0000", interval=21)
+        result = await _menu(hass, entry, "reminders")
+        await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {CONF_REMINDERS_ENABLED: True, CONF_EVENING_TIME: "18:00:00",
+             CONF_MORNING_TIME: "07:00:00", CONF_DAY_BEFORE_TIME: "08:00:00"},
+        )
+        await hass.async_block_till_done()
+        result = await _menu(hass, entry, "general")
+        await hass.config_entries.options.async_configure(
+            result["flow_id"], {CONF_MISSING_WARNING: False, CONF_COLLECTION_TIME: "11:00:00"}
+        )
+        await hass.async_block_till_done()
+        # Reminders and general keep the type override.
+        assert get_types(entry)["emb"]["interval"] == 21
+        assert entry.options[CONF_REMINDERS_ENABLED] is True
+        # Saving a type keeps the reminder and general options.
+        await _save_type(hass, entry, "mko", color="#010101")
+    assert entry.options[CONF_REMINDERS_ENABLED] is True
+    assert entry.options[CONF_EVENING_TIME] == "18:00"
+    assert entry.options[CONF_MISSING_WARNING] is False
+    assert entry.options[CONF_COLLECTION_TIME] == "11:00"
+    assert get_types(entry)["emb"]["color"] == "#aa0000"
+    assert get_types(entry)["mko"]["color"] == "#010101"
     await unload(hass, entry)
