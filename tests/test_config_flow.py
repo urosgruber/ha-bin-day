@@ -83,6 +83,8 @@ async def test_full_flow(hass: HomeAssistant) -> None:
     assert "(no collection now)" not in labels["mko"]
 
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["step_id"] == "type"
+    result = await _accept_types(hass, result)
     assert result["step_id"] == "name"
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"name": "Odvoz smeti"}
@@ -138,13 +140,45 @@ async def test_cannot_connect_on_pick(hass: HomeAssistant) -> None:
     assert result["errors"] == {"base": "cannot_connect"}
 
 
+async def _accept_types(hass: HomeAssistant, result, overrides=None):
+    """Walk through all type steps with defaults; return the name step."""
+    overrides = overrides or {}
+    while result["step_id"] == "type":
+        key = result["description_placeholders"]["type"]
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], overrides.get(key, {})
+        )
+    return result
+
+
 async def test_invalid_color(hass: HomeAssistant) -> None:
     result = await _to_types(hass)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["step_id"] == "type"
+    assert result["description_placeholders"] == {"type": "Mixed waste"}
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"color_mko": "green"}
+        result["flow_id"], {"name": "Moji smeti", "color": "green"}
     )
-    assert result["step_id"] == "types"
-    assert result["errors"] == {"base": "invalid_color"}
+    assert result["step_id"] == "type"
+    assert result["errors"] == {"color": "invalid_color"}
+    # The other input stays in the form.
+    values = {str(k): k.description["suggested_value"] for k in result["data_schema"].schema
+              if k.description}
+    assert values["name"] == "Moji smeti"
+    assert values["color"] == "green"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"name": "Moji smeti", "color": "#112233"}
+    )
+    assert result["description_placeholders"] == {"type": "Packaging"}
+
+
+async def test_empty_type_name(hass: HomeAssistant) -> None:
+    result = await _to_types(hass)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"name": "  "}
+    )
+    assert result["errors"] == {"name": "invalid_name"}
 
 
 async def test_no_type_selected(hass: HomeAssistant) -> None:
@@ -159,8 +193,15 @@ async def test_no_type_selected(hass: HomeAssistant) -> None:
 async def test_only_selected_types_are_stored(hass: HomeAssistant) -> None:
     result = await _to_types(hass)
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"types": ["emb", "mko"], "name_emb": "Plastika"}
+        result["flow_id"], {"types": ["emb", "mko"]}
     )
+    assert result["description_placeholders"] == {"type": "Mixed waste"}
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["description_placeholders"] == {"type": "Packaging"}
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"name": "Plastika"}
+    )
+    assert result["step_id"] == "name"
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["title"] == "Bin Day – LJUBLJANSKA CESTA 1 A"
     types = result["result"].data[CONF_TYPES]
@@ -176,6 +217,7 @@ async def test_unknown_type_defaults(hass: HomeAssistant) -> None:
             result["flow_id"], {"address_id": ADDRESSES[0].id}
         )
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    result = await _accept_types(hass, result)
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     unknown = result["result"].data[CONF_TYPES]["steklo"]
     assert unknown["name"] == "steklo"
@@ -186,6 +228,7 @@ async def test_unknown_type_defaults(hass: HomeAssistant) -> None:
 async def test_already_configured(hass: HomeAssistant) -> None:
     result = await _to_types(hass)
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    result = await _accept_types(hass, result)
     await hass.config_entries.flow.async_configure(result["flow_id"], {})
 
     result = await _start(hass)
@@ -199,9 +242,16 @@ async def test_already_configured(hass: HomeAssistant) -> None:
 async def test_slovenian_defaults(hass: HomeAssistant) -> None:
     hass.config.language = "sl"
     result = await _to_types(hass)
-    defaults = {
-        str(k): k.default() for k in result["data_schema"].schema if hasattr(k, "default")
-    }
-    assert defaults["name_mko"] == "Mešani komunalni odpadki"
-    assert defaults["icon_mko"] == "mdi:trash-can"
-    assert defaults["color_mko"] == "#00a136"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["description_placeholders"] == {"type": "Mešani komunalni odpadki"}
+    defaults = {str(k): k.default() for k in result["data_schema"].schema}
+    assert defaults["name"] == "Mešani komunalni odpadki"
+    assert defaults["icon"] == "mdi:trash-can"
+    assert defaults["color"] == "#00a136"
+
+
+async def test_no_match_keeps_address(hass: HomeAssistant) -> None:
+    result = await _start(hass, [])
+    values = {str(k): k.description["suggested_value"] for k in result["data_schema"].schema
+              if k.description}
+    assert values == {"address": "Ljubljanska cesta 1 A"}

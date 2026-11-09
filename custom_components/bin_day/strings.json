@@ -16,9 +16,18 @@
       },
       "types": {
         "title": "Waste types",
-        "description": "Choose the types to track. Set the name, icon and colour of each type below. Use a colour like #00a136.",
+        "description": "Choose the types to track. You set the name, icon and colour of each type next.",
         "data": {
           "types": "Waste types"
+        }
+      },
+      "type": {
+        "title": "{type}",
+        "description": "Name, icon and colour for {type}. Use a colour like #00a136.",
+        "data": {
+          "name": "Name",
+          "icon": "Icon",
+          "color": "Colour"
         }
       },
       "name": {
@@ -32,7 +41,8 @@
       "no_match": "Simbio does not know this address.",
       "cannot_connect": "Cannot reach Simbio. Try again later.",
       "invalid_color": "Use a colour like #00a136.",
-      "no_types": "Choose at least one waste type."
+      "no_types": "Choose at least one waste type.",
+      "invalid_name": "Enter a name."
     },
     "abort": {
       "already_configured": "This address is already set up."

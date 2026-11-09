@@ -16,9 +16,18 @@
       },
       "types": {
         "title": "Vrste odpadkov",
-        "description": "Izberi vrste odpadkov. Spodaj nastavi ime, ikono in barvo vsake vrste. Uporabi barvo v obliki #00a136.",
+        "description": "Izberi vrste odpadkov. Ime, ikono in barvo vsake vrste nastaviš v naslednjem koraku.",
         "data": {
           "types": "Vrste odpadkov"
+        }
+      },
+      "type": {
+        "title": "{type}",
+        "description": "Ime, ikona in barva za {type}. Uporabi barvo v obliki #00a136.",
+        "data": {
+          "name": "Ime",
+          "icon": "Ikona",
+          "color": "Barva"
         }
       },
       "name": {
@@ -32,7 +41,8 @@
       "no_match": "Simbio tega naslova ne pozna.",
       "cannot_connect": "Simbio ni dosegljiv. Poskusi kasneje.",
       "invalid_color": "Uporabi barvo v obliki #00a136.",
-      "no_types": "Izberi vsaj eno vrsto odpadkov."
+      "no_types": "Izberi vsaj eno vrsto odpadkov.",
+      "invalid_name": "Vnesi ime."
     },
     "abort": {
       "already_configured": "Ta naslov je že nastavljen."

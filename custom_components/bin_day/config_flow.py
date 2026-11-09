@@ -35,6 +35,56 @@ _UNKNOWN_ICON = "mdi:delete"
 _NO_COLLECTION = {"en": "(no collection now)", "sl": "(trenutno ni odvoza)"}
 
 
+def default_type_name(key: str, sl: bool) -> str:
+    """Return the default display name of a type key."""
+    known = TYPE_DEFAULTS.get(key)
+    if known is None:
+        return key
+    return known.name_sl if sl else known.name_en
+
+
+def default_type_values(key: str, index: int, sl: bool) -> dict[str, str]:
+    """Return the default name, icon and colour of a type at this position."""
+    known = TYPE_DEFAULTS.get(key)
+    return {
+        "name": default_type_name(key, sl),
+        "icon": known.icon if known else _UNKNOWN_ICON,
+        "color": known.color if known else default_color(index),
+    }
+
+
+def type_schema(defaults: dict[str, str]) -> vol.Schema:
+    """Return the schema of the name, icon and colour of one type."""
+    return vol.Schema(
+        {
+            vol.Required("name", default=defaults["name"]): str,
+            vol.Required("icon", default=defaults["icon"]): IconSelector(),
+            vol.Required("color", default=defaults["color"]): TextSelector(),
+        }
+    )
+
+
+def validate_type(user_input: dict[str, Any]) -> dict[str, str]:
+    """Return field errors for the input of one type; empty when valid."""
+    errors: dict[str, str] = {}
+    if not user_input["name"].strip():
+        errors["name"] = "invalid_name"
+    if not _COLOR_RE.match(user_input["color"]):
+        errors["color"] = "invalid_color"
+    return errors
+
+
+def type_result(user_input: dict[str, Any]) -> dict[str, Any]:
+    """Return the stored settings of one type."""
+    return {
+        "name": user_input["name"].strip(),
+        "icon": user_input["icon"],
+        "color": user_input["color"],
+        "estimate": True,
+        "interval": None,
+    }
+
+
 class BinDayConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Bin Day."""
 
@@ -45,24 +95,11 @@ class BinDayConfigFlow(ConfigFlow, domain=DOMAIN):
         self._address: SimbioAddress | None = None
         self._fetched: dict[str, bool] = {}  # type key -> has a date now
         self._types: dict[str, dict[str, Any]] = {}
+        self._selected: list[str] = []
 
     @property
     def _sl(self) -> bool:
         return self.hass.config.language.lower().startswith("sl")
-
-    def _default_name(self, key: str) -> str:
-        known = TYPE_DEFAULTS.get(key)
-        if known is None:
-            return key
-        return known.name_sl if self._sl else known.name_en
-
-    def _default_icon(self, key: str) -> str:
-        known = TYPE_DEFAULTS.get(key)
-        return known.icon if known else _UNKNOWN_ICON
-
-    def _default_color(self, key: str, index: int) -> str:
-        known = TYPE_DEFAULTS.get(key)
-        return known.color if known else default_color(index)
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -83,7 +120,9 @@ class BinDayConfigFlow(ConfigFlow, domain=DOMAIN):
                     return await self.async_step_pick()
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema({vol.Required("address"): str}),
+            data_schema=self.add_suggested_values_to_schema(
+                vol.Schema({vol.Required("address"): str}), user_input
+            ),
             errors=errors,
         )
 
@@ -126,61 +165,64 @@ class BinDayConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_types(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Choose the waste types and set the name, icon and colour of each."""
+        """Choose which waste types to track."""
         errors: dict[str, str] = {}
         keys = list(self._fetched)
         if user_input is not None:
-            selected = [k for k in keys if k in user_input["types"]]
-            if not selected:
+            self._selected = [k for k in keys if k in user_input["types"]]
+            if not self._selected:
                 errors["base"] = "no_types"
-            elif any(
-                not _COLOR_RE.match(user_input.get(f"color_{k}", "")) for k in selected
-            ):
-                errors["base"] = "invalid_color"
             else:
-                self._types = {
-                    k: {
-                        "name": user_input[f"name_{k}"],
-                        "icon": user_input[f"icon_{k}"],
-                        "color": user_input[f"color_{k}"],
-                        "estimate": True,
-                        "interval": None,
-                    }
-                    for k in selected
-                }
-                return await self.async_step_name()
+                self._types = {}
+                return await self.async_step_type()
 
         suffix = _NO_COLLECTION["sl" if self._sl else "en"]
+        name = lambda k: default_type_name(k, self._sl)  # noqa: E731
         options = [
             SelectOptionDict(
                 value=k,
-                label=f"{self._default_name(k)} {suffix}"
-                if not self._fetched[k]
-                else self._default_name(k),
+                label=name(k) if self._fetched[k] else f"{name(k)} {suffix}",
             )
             for k in keys
         ]
-        fields: dict[Any, Any] = {
-            vol.Required("types", default=keys): SelectSelector(
-                SelectSelectorConfig(
-                    options=options,
-                    multiple=True,
-                    mode=SelectSelectorMode.LIST,
+        schema = vol.Schema(
+            {
+                vol.Required("types", default=keys): SelectSelector(
+                    SelectSelectorConfig(
+                        options=options,
+                        multiple=True,
+                        mode=SelectSelectorMode.LIST,
+                    )
                 )
-            )
-        }
-        for index, key in enumerate(keys):
-            fields[vol.Required(f"name_{key}", default=self._default_name(key))] = str
-            fields[
-                vol.Required(f"icon_{key}", default=self._default_icon(key))
-            ] = IconSelector()
-            fields[
-                vol.Required(
-                    f"color_{key}", default=self._default_color(key, index)
-                )
-            ] = TextSelector()
+            }
+        )
         return self.async_show_form(
-            step_id="types", data_schema=vol.Schema(fields), errors=errors
+            step_id="types",
+            data_schema=self.add_suggested_values_to_schema(schema, user_input),
+            errors=errors,
+        )
+
+    async def async_step_type(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Set the name, icon and colour of the next selected type."""
+        keys = list(self._fetched)
+        key = next(k for k in self._selected if k not in self._types)
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            errors = validate_type(user_input)
+            if not errors:
+                self._types[key] = type_result(user_input)
+                if len(self._types) == len(self._selected):
+                    return await self.async_step_name()
+                return await self.async_step_type()
+        defaults = default_type_values(key, keys.index(key), self._sl)
+        schema = type_schema(defaults)
+        return self.async_show_form(
+            step_id="type",
+            data_schema=self.add_suggested_values_to_schema(schema, user_input),
+            description_placeholders={"type": defaults["name"]},
+            errors=errors,
         )
 
     async def async_step_name(
