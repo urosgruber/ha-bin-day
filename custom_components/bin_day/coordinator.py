@@ -6,9 +6,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later, async_track_time_change
@@ -33,6 +34,9 @@ from .const import (
 )
 from .schedule import Resolved, TypeHistory, done_at, learn, resolve
 from .source import AddressNotFound, Source, SourceError
+
+if TYPE_CHECKING:
+    from .reminders import ReminderScheduler
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -100,6 +104,10 @@ class BinDayCoordinator(DataUpdateCoordinator[BinDayData]):
         )
         self.history: dict[str, TypeHistory] = {}
         self.source_warned = False
+        # Set by the entry setup: the reminder scheduler (None when reminders
+        # are off) and the platforms that were forwarded.
+        self.reminders: ReminderScheduler | None = None
+        self.platforms: list[Platform] = []
         self._last_real_dates: dict[str, list[date]] = {}
         self._last_success: datetime | None = None
         self._retries = 0
@@ -175,6 +183,9 @@ class BinDayCoordinator(DataUpdateCoordinator[BinDayData]):
         for key in self.type_keys:
             real = [d for d in result.get(key, []) if d >= today]
             self.history[key] = learn(self.history.get(key, TypeHistory()), real)
+        if any(d >= today for dates in result.values() for d in dates):
+            # The source works again: re-arm the source-down warning.
+            self.source_warned = False
         await self.async_save()
         self._last_success = dt_util.utcnow()
         ir.async_delete_issue(self.hass, DOMAIN, self._issue_id)

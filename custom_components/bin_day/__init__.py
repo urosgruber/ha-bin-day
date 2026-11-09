@@ -7,13 +7,15 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import CONF_ADDRESS_ID, CONF_ADDRESS_NAME, CONF_CITY
+from .const import CONF_ADDRESS_ID, CONF_ADDRESS_NAME, CONF_CITY, CONF_REMINDERS_ENABLED
 from .coordinator import BinDayCoordinator
+from .reminders import ReminderScheduler
 from .simbio import SimbioAddress, SimbioClient, SimbioSource
 from .source import Source
 
-# Task 8 adds Platform.SWITCH.
 PLATFORMS: list[Platform] = [Platform.SENSOR]
+# Forwarded only when reminders are enabled.
+REMINDER_PLATFORMS: list[Platform] = [Platform.SWITCH]
 
 type BinDayConfigEntry = ConfigEntry[BinDayCoordinator]
 
@@ -38,7 +40,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: BinDayConfigEntry) -> bo
     entry.runtime_data = coordinator
     coordinator.async_start_timers()
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    platforms = list(PLATFORMS)
+    if entry.options.get(CONF_REMINDERS_ENABLED, False):
+        scheduler = ReminderScheduler(hass, entry, coordinator)
+        coordinator.reminders = scheduler
+        scheduler.async_start()
+        entry.async_on_unload(scheduler.async_stop)
+        platforms += REMINDER_PLATFORMS
+    # Unload reads this list: the options may change before the unload.
+    coordinator.platforms = platforms
+    await hass.config_entries.async_forward_entry_setups(entry, platforms)
     return True
 
 
@@ -49,4 +60,6 @@ async def _async_update_listener(hass: HomeAssistant, entry: BinDayConfigEntry) 
 
 async def async_unload_entry(hass: HomeAssistant, entry: BinDayConfigEntry) -> bool:
     """Unload a config entry."""
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    return await hass.config_entries.async_unload_platforms(
+        entry, entry.runtime_data.platforms
+    )

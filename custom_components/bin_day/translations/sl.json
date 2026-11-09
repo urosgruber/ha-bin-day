@@ -62,6 +62,17 @@
       "next": {
         "name": "Naslednji odvoz"
       }
+    },
+    "switch": {
+      "reminder_evening": {
+        "name": "Večerni opomnik"
+      },
+      "reminder_morning": {
+        "name": "Jutranji opomnik"
+      },
+      "reminder_day_before": {
+        "name": "Jutranji opomnik dan prej"
+      }
     }
   },
   "options": {

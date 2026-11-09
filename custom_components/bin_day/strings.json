@@ -62,6 +62,17 @@
       "next": {
         "name": "Next collection"
       }
+    },
+    "switch": {
+      "reminder_evening": {
+        "name": "Evening reminder"
+      },
+      "reminder_morning": {
+        "name": "Morning reminder"
+      },
+      "reminder_day_before": {
+        "name": "Day-before morning reminder"
+      }
     }
   },
   "options": {

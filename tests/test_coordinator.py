@@ -282,8 +282,47 @@ async def test_corrupt_store_entry_falls_back(
     coordinator: BinDayCoordinator = entry.runtime_data
     assert coordinator.history["mko"].last_real == d(13)
     assert coordinator.history["emb"].last_real == d(6)
-    assert coordinator.source_warned is True
+    # The fetch returned a date, so the source-down warning is re-armed.
+    assert coordinator.source_warned is False
     assert "mko" in caplog.text and "corrupt" in caplog.text.lower()
+    await unload(hass, entry)
+
+
+async def test_source_warned_loads_and_survives_failure(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, hass_storage
+) -> None:
+    """The stored flag loads, and a failed fetch keeps it."""
+    freezer.move_to(at(9, 9))
+    entry = make_entry()
+    hass_storage[f"bin_day.{entry.entry_id}"] = {
+        "version": 1,
+        "minor_version": 1,
+        "key": f"bin_day.{entry.entry_id}",
+        "data": {
+            "types": {"mko": TypeHistory(last_real=d(6), ever_seen=True).to_dict()},
+            "source_warned": True,
+        },
+    }
+    assert await setup(hass, entry, FakeSource(SourceError("HTTP 503")))
+    coordinator: BinDayCoordinator = entry.runtime_data
+    assert coordinator.data.source_ok is False
+    assert coordinator.source_warned is True
+    await unload(hass, entry)
+
+
+async def test_success_without_dates_keeps_source_warned(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """Only a fetch that yields a date re-arms the source-down warning."""
+    freezer.move_to(at(9, 9))
+    entry = make_entry()
+    source = FakeSource({"mko": [d(13)]})
+    assert await setup(hass, entry, source)
+    coordinator: BinDayCoordinator = entry.runtime_data
+    coordinator.source_warned = True
+    source.result = {"mko": []}
+    await coordinator.async_fetch_now()
+    assert coordinator.source_warned is True
     await unload(hass, entry)
 
 
