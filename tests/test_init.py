@@ -60,3 +60,17 @@ async def test_create_source_uses_stored_address(hass: HomeAssistant) -> None:
     assert source._address.id == "1"
     assert source._address.name == "Ljubljanska cesta 1 A"
     assert source._address.city == "Ljubljana"
+
+
+async def test_card_is_served(hass: HomeAssistant, hass_client) -> None:
+    """After setup, HA serves the card file."""
+    entry = MockConfigEntry(domain="bin_day", data=DATA)
+    entry.add_to_hass(hass)
+    with patch("custom_components.bin_day._create_source", return_value=_Source()):
+        assert await hass.config_entries.async_setup(entry.entry_id) is True
+        await hass.async_block_till_done()
+    client = await hass_client()
+    resp = await client.get("/bin_day/bin-day-card.js")
+    assert resp.status == 200
+    body = await resp.text()
+    assert 'customElements.define("bin-day-card"' in body

@@ -2,12 +2,25 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from homeassistant.components import frontend
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.typing import ConfigType
+from homeassistant.loader import async_get_integration
 
-from .const import CONF_ADDRESS_ID, CONF_ADDRESS_NAME, CONF_CITY, CONF_REMINDERS_ENABLED
+from .const import (
+    CONF_ADDRESS_ID,
+    CONF_ADDRESS_NAME,
+    CONF_CITY,
+    CONF_REMINDERS_ENABLED,
+    DOMAIN,
+)
 from .coordinator import BinDayCoordinator
 from .reminders import ReminderScheduler
 from .simbio import SimbioAddress, SimbioClient, SimbioSource
@@ -18,6 +31,25 @@ PLATFORMS: list[Platform] = [Platform.SENSOR]
 REMINDER_PLATFORMS: list[Platform] = [Platform.SWITCH]
 
 type BinDayConfigEntry = ConfigEntry[BinDayCoordinator]
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+CARD_URL = "/bin_day/bin-day-card.js"
+CARD_PATH = Path(__file__).parent / "frontend" / "bin-day-card.js"
+_CARD_REGISTERED = f"{DOMAIN}_card_registered"
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Serve the card and load it in the frontend, once per HA start."""
+    if hass.data.get(_CARD_REGISTERED):
+        return True
+    hass.data[_CARD_REGISTERED] = True
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig(CARD_URL, str(CARD_PATH), True)]
+    )
+    integration = await async_get_integration(hass, DOMAIN)
+    frontend.add_extra_js_url(hass, f"{CARD_URL}?v={integration.version}")
+    return True
 
 
 def _create_source(hass: HomeAssistant, entry: ConfigEntry) -> Source:
