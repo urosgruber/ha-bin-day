@@ -93,19 +93,19 @@ test("model: estimate", () => {
   assert.equal(m.footnote, true);
 });
 
-test("model: never hidden, no_data listed", () => {
+test("model: types without data are hidden", () => {
   const noData = { ...type("emb", null), status: "no_data" };
   const m = buildModel(input([type("mko", 2), noData, type("bio", null)]), "en");
   const shown = [...m.headline.names, ...m.rest.map((r) => r.name)];
-  assert.ok(!shown.includes("Biološki odpadki"));
-  assert.ok(!m.noData.includes("Biološki odpadki"));
-  assert.deepEqual(m.noData, ["Embalaža"]);
+  assert.deepEqual(shown, ["Mešani komunalni odpadki"]);
+  assert.equal("noData" in m, false);
 });
 
 test("model: empty", () => {
   const m = buildModel(input([type("mko", null), { ...type("emb", null), status: "no_data" }]), "en");
   assert.equal(m.state, "empty");
   assert.equal(m.accent, null);
+  assert.equal("noData" in m, false);
 });
 
 test("model: uses server today, not browser clock", () => {

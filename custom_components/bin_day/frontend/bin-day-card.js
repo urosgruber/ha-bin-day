@@ -15,7 +15,6 @@ const TEXTS = {
     until: (t) => `until ${t}`,
     footnote: "* estimate – no data from the source",
     empty: "No collection data. Check the source.",
-    noData: "No data",
     cardDescription: "Shows the next waste collection of a Bin Day address.",
     device: "Address (Bin Day device)",
     stripDays: "Days in the strip",
@@ -32,7 +31,6 @@ const TEXTS = {
     until: (t) => `do ${t}`,
     footnote: "* ocena – vir nima podatka",
     empty: "Ni podatkov o odvozu. Preveri vir podatkov.",
-    noData: "Ni podatkov",
     cardDescription: "Prikaže naslednji odvoz odpadkov za naslov Bin Day.",
     device: "Naslov (naprava Bin Day)",
     stripDays: "Število dni v traku",
@@ -99,14 +97,10 @@ export function buildModel(input, lang) {
   const stripDays = Number(input.stripDays) || 14;
   const minDays = input.done ? 1 : 0;
 
-  const noData = [];
   const items = [];
   for (const [order, type] of (input.types || []).entries()) {
-    if (type.status === "never") continue;
-    if (type.status === "no_data") {
-      noData.push(type.name);
-      continue;
-    }
+    // A type without data (never seen, or no date to show) is left out.
+    if (type.status === "never" || type.status === "no_data") continue;
     const offsets = (type.dates || [])
       .filter((d) => ISO_RE.test(d))
       .map((d) => diffDays(today, d));
@@ -131,7 +125,6 @@ export function buildModel(input, lang) {
       accent: null,
       headline: null,
       rest: [],
-      noData,
       strip: [],
       footnote: false,
       until: input.until || null,
@@ -174,7 +167,6 @@ export function buildModel(input, lang) {
         dateText: shortDate(addDays(today, i.days), [i]),
         relText: rel(i.days),
       })),
-    noData,
     strip,
     footnote: items.some((i) => i.estimate),
     until: input.until || null,
@@ -215,11 +207,8 @@ ha-card{padding:16px;text-align:left;height:100%;box-sizing:border-box}
 function renderHtml(model, hideTitle, lang) {
   const t = texts(lang);
   let html = hideTitle ? "" : `<div class="hdr">${esc(model.title)}</div>`;
-  const noDataLine = model.noData.length
-    ? `<div class="rest">${esc(t.noData)}: ${esc(model.noData.join(", "))}</div>`
-    : "";
   if (model.state === "empty") {
-    return html + `<div class="sub">${esc(t.empty)}</div>` + noDataLine;
+    return html + `<div class="sub">${esc(t.empty)}</div>`;
   }
   const h = model.headline;
   const due = model.state !== "quiet";
@@ -239,7 +228,6 @@ function renderHtml(model, hideTitle, lang) {
       `<div class="rest"><ha-icon icon="${esc(r.icon)}" style="color:${color}"></ha-icon>` +
       `<span>${esc(r.name)} · ${esc(r.dateText)} · ${esc(r.relText)}</span></div>`;
   }
-  html += noDataLine;
   html += `<div class="strip" style="grid-template-columns:repeat(${model.strip.length},1fr)">`;
   for (const day of model.strip) {
     let dot = "";

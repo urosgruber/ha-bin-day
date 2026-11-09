@@ -61,6 +61,8 @@ hide_title: false
 
 You can also add the card with the visual editor.
 
+The card leaves out a type that has no date to show. When no type has a date, the card shows "No collection data. Check the source."
+
 ## Badge
 
 This badge shows the next collection. It hides when the state is `none`.
