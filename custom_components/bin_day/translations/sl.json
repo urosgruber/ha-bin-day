@@ -1,0 +1,47 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Naslov",
+        "description": "Kot na simbio.si, npr. Ljubljanska cesta 1 A.",
+        "data": {
+          "address": "Ulica in hišna številka"
+        }
+      },
+      "pick": {
+        "title": "Izberi naslov",
+        "data": {
+          "address_id": "Naslov"
+        }
+      },
+      "types": {
+        "title": "Vrste odpadkov",
+        "description": "Izberi vrste odpadkov. Spodaj nastavi ime, ikono in barvo vsake vrste. Uporabi barvo v obliki #00a136.",
+        "data": {
+          "types": "Vrste odpadkov"
+        }
+      },
+      "name": {
+        "title": "Ime",
+        "data": {
+          "name": "Ime"
+        }
+      }
+    },
+    "error": {
+      "no_match": "Simbio tega naslova ne pozna.",
+      "cannot_connect": "Simbio ni dosegljiv. Poskusi kasneje.",
+      "invalid_color": "Uporabi barvo v obliki #00a136.",
+      "no_types": "Izberi vsaj eno vrsto odpadkov."
+    },
+    "abort": {
+      "already_configured": "Ta naslov je že nastavljen."
+    }
+  },
+  "issues": {
+    "address_not_found": {
+      "title": "Simbio ne pozna več naslova {address}",
+      "description": "Odstrani Bin Day in ga dodaj znova z novim naslovom."
+    }
+  }
+}

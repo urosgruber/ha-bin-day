@@ -1,0 +1,47 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Address",
+        "description": "As written on simbio.si, e.g. Ljubljanska cesta 1 A.",
+        "data": {
+          "address": "Street and house number"
+        }
+      },
+      "pick": {
+        "title": "Choose your address",
+        "data": {
+          "address_id": "Address"
+        }
+      },
+      "types": {
+        "title": "Waste types",
+        "description": "Choose the types to track. Set the name, icon and colour of each type below. Use a colour like #00a136.",
+        "data": {
+          "types": "Waste types"
+        }
+      },
+      "name": {
+        "title": "Name",
+        "data": {
+          "name": "Name"
+        }
+      }
+    },
+    "error": {
+      "no_match": "Simbio does not know this address.",
+      "cannot_connect": "Cannot reach Simbio. Try again later.",
+      "invalid_color": "Use a colour like #00a136.",
+      "no_types": "Choose at least one waste type."
+    },
+    "abort": {
+      "already_configured": "This address is already set up."
+    }
+  },
+  "issues": {
+    "address_not_found": {
+      "title": "Simbio no longer knows the address {address}",
+      "description": "Remove Bin Day and add it again with the new address."
+    }
+  }
+}
