@@ -9,7 +9,11 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import config_validation as cv, issue_registry as ir
+from homeassistant.helpers import (
+    config_validation as cv,
+    entity_registry as er,
+    issue_registry as ir,
+)
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
@@ -80,10 +84,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: BinDayConfigEntry) -> bo
         scheduler.async_start()
         entry.async_on_unload(scheduler.async_stop)
         platforms += REMINDER_PLATFORMS
+    else:
+        _remove_reminder_switches(hass, entry)
     # Unload reads this list: the options may change before the unload.
     coordinator.platforms = platforms
     await hass.config_entries.async_forward_entry_setups(entry, platforms)
     return True
+
+
+def _remove_reminder_switches(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove the switch entities of this entry when reminders are off."""
+    registry = er.async_get(hass)
+    for reg_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if reg_entry.domain == Platform.SWITCH and reg_entry.platform == DOMAIN:
+            registry.async_remove(reg_entry.entity_id)
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: BinDayConfigEntry) -> None:

@@ -395,14 +395,20 @@ async def test_switches_only_when_enabled(
         assert entry.state is ConfigEntryState.LOADED
         assert len(hass.states.async_entity_ids("switch")) == 3
 
-        # Turning them off again unloads exactly the loaded platforms.
+        # Turning them off again unloads exactly the loaded platforms and
+        # removes the switch entities of this entry.
         hass.config_entries.async_update_entry(entry, options={})
         await hass.async_block_till_done()
     assert entry.state is ConfigEntryState.LOADED
-    assert all(
-        hass.states.get(eid).state == "unavailable"
-        for eid in hass.states.async_entity_ids("switch")
-    )
+    switches = [
+        e
+        for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if e.domain == "switch"
+    ]
+    assert switches == []
+    assert hass.states.async_entity_ids("switch") == []
+    # The sensors stay.
+    assert er.async_entries_for_config_entry(registry, entry.entry_id)
     assert await hass.config_entries.async_unload(entry.entry_id)
     assert entry.state is ConfigEntryState.NOT_LOADED
 
