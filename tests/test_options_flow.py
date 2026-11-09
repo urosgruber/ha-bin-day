@@ -164,6 +164,42 @@ async def test_options_reminders(hass: HomeAssistant, freezer: FrozenDateTimeFac
     await unload(hass, entry)
 
 
+async def test_options_reminders_enabled_needs_a_target(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """Reminders on with no target shows an error and keeps the input."""
+
+    async def _noop(call: ServiceCall) -> None:
+        return None
+
+    hass.services.async_register("notify", "mobile_app_one", _noop)
+    entry = await _entry(hass, freezer)
+    result = await _menu(hass, entry, "reminders")
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_REMINDERS_ENABLED: True,
+            CONF_NOTIFY_TARGETS: [],
+            CONF_EVENING_TIME: "18:45:00",
+            CONF_MORNING_TIME: "07:00:00",
+            CONF_DAY_BEFORE_TIME: "08:30:00",
+        },
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reminders"
+    assert result["errors"] == {CONF_NOTIFY_TARGETS: "no_targets"}
+    suggested = {
+        str(k): k.description["suggested_value"]
+        for k in result["data_schema"].schema
+        if k.description and "suggested_value" in k.description
+    }
+    assert suggested[CONF_REMINDERS_ENABLED] is True
+    assert suggested[CONF_EVENING_TIME] == "18:45:00"
+    assert CONF_REMINDERS_ENABLED not in entry.options
+    hass.config_entries.options.async_abort(result["flow_id"])
+    await unload(hass, entry)
+
+
 async def test_options_reminders_defaults(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
@@ -252,13 +288,18 @@ async def test_options_editing_type_keeps_other_type_override(
 async def test_options_sections_keep_each_other(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
+    async def _noop(call: ServiceCall) -> None:
+        return None
+
+    hass.services.async_register("notify", "mobile_app_one", _noop)
     entry = await _entry(hass, freezer)
     with patch("custom_components.bin_day._create_source", return_value=FakeSource({})):
         await _save_type(hass, entry, "emb", color="#aa0000", interval=21)
         result = await _menu(hass, entry, "reminders")
         await hass.config_entries.options.async_configure(
             result["flow_id"],
-            {CONF_REMINDERS_ENABLED: True, CONF_EVENING_TIME: "18:00:00",
+            {CONF_REMINDERS_ENABLED: True, CONF_NOTIFY_TARGETS: ["mobile_app_one"],
+             CONF_EVENING_TIME: "18:00:00",
              CONF_MORNING_TIME: "07:00:00", CONF_DAY_BEFORE_TIME: "08:00:00"},
         )
         await hass.async_block_till_done()

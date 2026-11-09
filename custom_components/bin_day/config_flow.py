@@ -393,12 +393,18 @@ class BinDayOptionsFlow(OptionsFlow):
         options = self.config_entry.options
         services = self.hass.services.async_services_for_domain("notify")
         offered = sorted(name for name in services if name not in _NOT_TARGETS)
+        errors: dict[str, str] = {}
         if user_input is not None:
+            enabled = bool(user_input[CONF_REMINDERS_ENABLED])
+            chosen = list(user_input.get(CONF_NOTIFY_TARGETS, []))
+            if enabled and not chosen:
+                errors[CONF_NOTIFY_TARGETS] = "no_targets"
+        if user_input is not None and not errors:
             # Saved targets that are no longer offered are dropped here.
             return self._save(
                 **{
-                    CONF_REMINDERS_ENABLED: bool(user_input[CONF_REMINDERS_ENABLED]),
-                    CONF_NOTIFY_TARGETS: list(user_input.get(CONF_NOTIFY_TARGETS, [])),
+                    CONF_REMINDERS_ENABLED: enabled,
+                    CONF_NOTIFY_TARGETS: chosen,
                     CONF_EVENING_TIME: _hhmm(user_input[CONF_EVENING_TIME]),
                     CONF_MORNING_TIME: _hhmm(user_input[CONF_MORNING_TIME]),
                     CONF_DAY_BEFORE_TIME: _hhmm(user_input[CONF_DAY_BEFORE_TIME]),
@@ -432,7 +438,11 @@ class BinDayOptionsFlow(OptionsFlow):
                 ): TimeSelector(),
             }
         )
-        return self.async_show_form(step_id="reminders", data_schema=schema)
+        return self.async_show_form(
+            step_id="reminders",
+            data_schema=self.add_suggested_values_to_schema(schema, user_input),
+            errors=errors,
+        )
 
     # ----- general -----
 

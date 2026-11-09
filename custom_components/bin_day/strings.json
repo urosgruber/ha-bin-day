@@ -124,7 +124,8 @@
     "error": {
       "invalid_color": "Use a colour like #00a136.",
       "invalid_name": "Enter a name.",
-      "invalid_interval": "Enter a whole number from 7 to 35, or leave it empty."
+      "invalid_interval": "Enter a whole number from 7 to 35, or leave it empty.",
+      "no_targets": "Choose at least one device to notify."
     }
   }
 }
