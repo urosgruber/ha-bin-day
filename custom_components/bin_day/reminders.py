@@ -65,10 +65,9 @@ class ReminderScheduler:
         self.hass = hass
         self.entry = entry
         self.coordinator = coordinator
-        # The switches set these values when they are added and toggled.
-        self.enabled: dict[str, bool] = {
-            key: default for key, (_opt, _time, default) in REMINDERS.items()
-        }
+        # Off until the switch is added: a disabled switch entity never sends.
+        # The switch sets its restored or default value when it is added.
+        self.enabled: dict[str, bool] = dict.fromkeys(REMINDERS, False)
         self._unsubs: list[Callable[[], None]] = []
 
     @callback
@@ -138,32 +137,45 @@ class ReminderScheduler:
         return names
 
     async def _async_send_missing_warning(self) -> None:
-        """Warn once per gap per type, and once while the source is down."""
+        """Warn once per gap per type, and once while the source is down.
+
+        The flags are set and saved only after a target received the warning,
+        so a failed send is tried again the next evening.
+        """
         coordinator = self.coordinator
         data = coordinator.data
         if data is None:
             return
-        warn = False
-        for key, res in data.resolved.items():
-            hist = coordinator.history.get(key)
-            if res.status == "no_data" and hist is not None and not hist.warned:
-                hist.warned = True
-                warn = True
-        source_down = not data.source_ok and all(
-            res.date is None for res in data.resolved.values()
+        missing = [
+            key
+            for key, res in data.resolved.items()
+            if res.status == "no_data"
+            and (hist := coordinator.history.get(key)) is not None
+            and not hist.warned
+        ]
+        source_down = (
+            not data.source_ok
+            and all(res.date is None for res in data.resolved.values())
+            and not coordinator.source_warned
         )
-        if source_down and not coordinator.source_warned:
-            coordinator.source_warned = True
-            warn = True
-        if not warn:
+        if not missing and not source_down:
             return
-        await coordinator.async_save()
         # One message covers all types: the text names no type.
-        await self._async_notify(missing_text(lang_for(self.hass)))
+        if not await self._async_notify(missing_text(lang_for(self.hass))):
+            return
+        for key in missing:
+            coordinator.history[key].warned = True
+        if source_down:
+            coordinator.source_warned = True
+        await coordinator.async_save()
 
-    async def _async_notify(self, message: str) -> None:
-        """Send to every target; a failing target never blocks the others."""
+    async def _async_notify(self, message: str) -> int:
+        """Send to every target; a failing target never blocks the others.
+
+        Return the number of targets that received the message.
+        """
         payload = {"title": self.entry.title, "message": message}
+        sent = 0
         for target in self.entry.options.get(CONF_NOTIFY_TARGETS) or []:
             try:
                 await self.hass.services.async_call(
@@ -177,3 +189,6 @@ class ReminderScheduler:
                 _LOGGER.warning(
                     "Notify action notify.%s failed unexpectedly: %s", target, err
                 )
+            else:
+                sent += 1
+        return sent

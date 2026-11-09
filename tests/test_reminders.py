@@ -405,3 +405,58 @@ async def test_switches_only_when_enabled(
     )
     assert await hass.config_entries.async_unload(entry.entry_id)
     assert entry.state is ConfigEntryState.NOT_LOADED
+
+
+async def test_disabled_switch_entity_never_sends(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    calls = async_mock_service(hass, "notify", "phone_a")
+    async_mock_service(hass, "notify", "phone_b")
+    freezer.move_to(at(12, 18, 45))
+    entry = make_entry(reminder_options())
+    source = FakeSource({"mko": [d(13)]})
+    assert await setup(hass, entry, source)
+    evening = switch_id(hass, entry, "evening")
+    er.async_get(hass).async_update_entity(
+        evening, disabled_by=er.RegistryEntryDisabler.USER
+    )
+    with patch("custom_components.bin_day._create_source", return_value=source):
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+    assert hass.states.get(evening) is None
+    await tick(hass, freezer, at(12, 19))
+    assert calls == []
+    await unload(hass, entry)
+
+
+async def test_missing_warning_retried_after_failed_send(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, hass_storage
+) -> None:
+    freezer.move_to(at(9, 9))
+    entry = make_entry(reminder_options(**{CONF_TYPES: {"mko": {"estimate": False}}}))
+    source = FakeSource({"mko": [d(13)]})
+    assert await setup(hass, entry, source)
+    coordinator = entry.runtime_data
+    source.result = SourceError("HTTP 503")
+    freezer.move_to(at(14, 18, 45))
+    await coordinator.async_fetch_now()
+    await hass.async_block_till_done()
+
+    # No target exists yet: every send fails, so no flag is set or saved.
+    await tick(hass, freezer, at(14, 19))
+    assert coordinator.history["mko"].warned is False
+    assert coordinator.source_warned is False
+    stored = hass_storage[f"bin_day.{entry.entry_id}"]["data"]
+    assert stored["types"]["mko"]["warned"] is False
+    assert stored["source_warned"] is False
+
+    # The targets exist now: the warning goes out once.
+    calls = async_mock_service(hass, "notify", "phone_a")
+    async_mock_service(hass, "notify", "phone_b")
+    await tick(hass, freezer, at(15, 19))
+    assert messages(calls) == [EN_MISSING]
+    assert coordinator.history["mko"].warned is True
+    assert coordinator.source_warned is True
+    await tick(hass, freezer, at(16, 19))
+    assert messages(calls) == [EN_MISSING]
+    await unload(hass, entry)
