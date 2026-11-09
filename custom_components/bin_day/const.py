@@ -61,3 +61,9 @@ _COLOR_CYCLE = ("#00a136", "#ffdd00", "#8d6e63", *EXTRA_COLORS)
 def default_color(index: int) -> str:
     """Return the colour for the type at this position; the list repeats."""
     return _COLOR_CYCLE[index % len(_COLOR_CYCLE)]
+
+# Simbio web service.
+SIMBIO_URL = "https://www.simbio.si/sl/moj-dan-odvoza-odpadkov"
+SIMBIO_ACTION = "simbioOdvozOdpadkov"
+USER_AGENT = "BinDay/0.1.0 (+https://github.com/urosgruber/ha-bin-day)"
+REQUEST_TIMEOUT = 20
