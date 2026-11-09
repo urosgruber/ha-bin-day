@@ -118,7 +118,8 @@
         "title": "General",
         "data": {
           "missing_warning": "Warn when data is missing",
-          "collection_time": "Collection time (optional)"
+          "collection_time": "Collection time (optional)",
+          "language": "Language"
         }
       }
     },
@@ -127,6 +128,15 @@
       "invalid_name": "Enter a name.",
       "invalid_interval": "Enter a whole number from 7 to 35, or leave it empty.",
       "no_targets": "Choose at least one device to notify."
+    }
+  },
+  "selector": {
+    "language": {
+      "options": {
+        "auto": "Automatic (Home Assistant language)",
+        "en": "English",
+        "sl": "Slovenian"
+      }
     }
   }
 }

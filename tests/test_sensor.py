@@ -153,3 +153,42 @@ async def test_next_today_sl(hass: HomeAssistant, freezer: FrozenDateTimeFactory
     assert await setup(hass, entry, FakeSource({"mko": [d(13)]}))
     assert hass.states.get(next_entity(hass, entry)).state == "Danes: Mixed waste"
     await unload(hass, entry)
+
+
+async def test_next_language_option_wins(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    hass.config.language = "en"
+    freezer.move_to(at(12, 19))
+    entry = make_entry({"language": "sl"})
+    assert await setup(hass, entry, FakeSource({"mko": [d(13)]}))
+    state = hass.states.get(next_entity(hass, entry))
+    assert state.state == "Jutri: Mixed waste"
+    assert state.attributes["language"] == "sl"
+    await unload(hass, entry)
+
+
+async def test_next_language_auto_follows_ha(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    hass.config.language = "sl"
+    freezer.move_to(at(12, 19))
+    entry = make_entry({"language": "auto"})
+    assert await setup(hass, entry, FakeSource({"mko": [d(13)]}))
+    state = hass.states.get(next_entity(hass, entry))
+    assert state.attributes["language"] == "sl"
+    assert state.state.startswith("Jutri")
+    await unload(hass, entry)
+
+
+async def test_next_language_missing_option_is_auto(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    hass.config.language = "de"
+    freezer.move_to(at(12, 19))
+    entry = make_entry()
+    assert await setup(hass, entry, FakeSource({"mko": [d(13)]}))
+    state = hass.states.get(next_entity(hass, entry))
+    assert state.attributes["language"] == "en"
+    assert state.state == "Tomorrow: Mixed waste"
+    await unload(hass, entry)

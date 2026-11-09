@@ -118,7 +118,8 @@
         "title": "Splošno",
         "data": {
           "missing_warning": "Opozori, ko podatki manjkajo",
-          "collection_time": "Ura odvoza (neobvezno)"
+          "collection_time": "Ura odvoza (neobvezno)",
+          "language": "Jezik"
         }
       }
     },
@@ -127,6 +128,15 @@
       "invalid_name": "Vnesi ime.",
       "invalid_interval": "Vnesi celo število od 7 do 35 ali pusti prazno.",
       "no_targets": "Izberi vsaj eno napravo za obvestila."
+    }
+  },
+  "selector": {
+    "language": {
+      "options": {
+        "auto": "Samodejno (jezik Home Assistanta)",
+        "en": "Angleščina",
+        "sl": "Slovenščina"
+      }
     }
   }
 }

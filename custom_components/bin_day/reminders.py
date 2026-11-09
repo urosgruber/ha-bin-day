@@ -123,7 +123,7 @@ class ReminderScheduler:
         if not names:
             return
         until = collection.strftime("%H:%M") if kind == "today" and collection else None
-        await self._async_notify(build_message(lang_for(self.hass), kind, names, until))
+        await self._async_notify(build_message(lang_for(self.hass, self.entry), kind, names, until))
 
     def _due_names(self, day: date) -> list[str]:
         resolved = self.coordinator.data.resolved
@@ -161,7 +161,7 @@ class ReminderScheduler:
         if not missing and not source_down:
             return
         # One message covers all types: the text names no type.
-        if not await self._async_notify(missing_text(lang_for(self.hass))):
+        if not await self._async_notify(missing_text(lang_for(self.hass, self.entry))):
             return
         for key in missing:
             coordinator.history[key].warned = True

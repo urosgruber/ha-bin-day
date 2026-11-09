@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
 import voluptuous as vol
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -13,6 +14,7 @@ from custom_components.bin_day.const import (
     CONF_COLLECTION_TIME,
     CONF_DAY_BEFORE_TIME,
     CONF_EVENING_TIME,
+    CONF_LANGUAGE,
     CONF_MISSING_WARNING,
     CONF_MORNING_TIME,
     CONF_NOTIFY_TARGETS,
@@ -319,4 +321,42 @@ async def test_options_sections_keep_each_other(
     assert entry.options[CONF_COLLECTION_TIME] == "11:00"
     assert get_types(entry)["emb"]["color"] == "#aa0000"
     assert get_types(entry)["mko"]["color"] == "#010101"
+    await unload(hass, entry)
+
+
+async def test_options_general_language(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    entry = await _entry(hass, freezer)
+    with patch("custom_components.bin_day._create_source", return_value=FakeSource({})):
+        result = await _menu(hass, entry, "general")
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {CONF_MISSING_WARNING: True, CONF_LANGUAGE: "sl"}
+        )
+        assert result["type"] is FlowResultType.CREATE_ENTRY
+        await hass.async_block_till_done()
+        assert entry.options[CONF_LANGUAGE] == "sl"
+
+        # The form shows the saved value; an empty form falls back to "auto".
+        result = await _menu(hass, entry, "general")
+        keys = {str(k): k for k in result["data_schema"].schema}
+        assert keys[CONF_LANGUAGE].default() == "sl"
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {CONF_MISSING_WARNING: True, CONF_LANGUAGE: "auto"}
+        )
+        await hass.async_block_till_done()
+    assert entry.options[CONF_LANGUAGE] == "auto"
+    await unload(hass, entry)
+
+
+async def test_options_general_language_rejects_unknown(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    entry = await _entry(hass, freezer)
+    with patch("custom_components.bin_day._create_source", return_value=FakeSource({})):
+        result = await _menu(hass, entry, "general")
+        with pytest.raises(InvalidData):
+            await hass.config_entries.options.async_configure(
+                result["flow_id"], {CONF_MISSING_WARNING: True, CONF_LANGUAGE: "de"}
+            )
     await unload(hass, entry)

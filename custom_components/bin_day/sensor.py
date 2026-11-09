@@ -118,7 +118,7 @@ class BinDayNextSensor(BinDayEntity, SensorEntity):
         names = [
             configs[key]["name"] + ("*" if resolved[key].estimate else "") for key in keys
         ]
-        return next_state(lang_for(self.hass), kind, names)
+        return next_state(lang_for(self.hass, self._entry), kind, names)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -132,4 +132,5 @@ class BinDayNextSensor(BinDayEntity, SensorEntity):
             "done": done,
             "until": collection.strftime("%H:%M") if collection else None,
             "entry_id": self._entry.entry_id,
+            "language": lang_for(self.hass, self._entry),
         }

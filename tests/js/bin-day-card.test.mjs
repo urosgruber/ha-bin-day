@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildModel } from "../../custom_components/bin_day/frontend/bin-day-card.js";
+import { buildModel, cardLanguage } from "../../custom_components/bin_day/frontend/bin-day-card.js";
 
 const TODAY = "2026-11-09"; // a Monday
 
@@ -130,4 +130,15 @@ test("model: uses server today, not browser clock", () => {
   } finally {
     globalThis.Date = RealDate;
   }
+});
+
+test("card language: the sensor attribute wins", () => {
+  assert.equal(cardLanguage({ locale: { language: "en" } }, "sl"), "sl");
+  assert.equal(cardLanguage({ locale: { language: "sl" } }, "en"), "en");
+});
+
+test("card language: falls back to the Home Assistant language", () => {
+  assert.equal(cardLanguage({ locale: { language: "sl-SI" } }, null), "sl-SI");
+  assert.equal(cardLanguage({ language: "de" }, undefined), "de");
+  assert.equal(cardLanguage({}, null), "en");
 });

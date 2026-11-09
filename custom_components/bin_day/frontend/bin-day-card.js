@@ -42,6 +42,12 @@ function texts(lang) {
   return String(lang || "").toLowerCase().startsWith("sl") ? TEXTS.sl : TEXTS.en;
 }
 
+// The card language: the language attribute of the next sensor when present
+// (the Language option of the integration), else the Home Assistant language.
+export function cardLanguage(hass, sensorLanguage) {
+  return sensorLanguage || hass?.locale?.language || hass?.language || "en";
+}
+
 const ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Date arithmetic on ISO strings in UTC: no time zone of the browser applies.
@@ -286,6 +292,7 @@ function readInput(hass, deviceId, stripDays) {
   const device = hass.devices?.[deviceId];
   return {
     entityIds,
+    language: next?.attributes.language || null,
     input: {
       title: device ? device.name_by_user || device.name : "Bin Day",
       today,
@@ -345,11 +352,11 @@ if (globalThis.customElements && !customElements.get("bin-day-card")) {
 
     _render() {
       const hass = this._hass;
-      const lang = hass.locale?.language || hass.language || "en";
       const deviceId = this._config.device_id || binDayDevices(hass)[0];
-      const { entityIds, input } = deviceId
+      const { entityIds, input, language } = deviceId
         ? readInput(hass, deviceId, this._config.strip_days)
-        : { entityIds: [], input: { title: "Bin Day", today: null, types: [] } };
+        : { entityIds: [], input: { title: "Bin Day", today: null, types: [] }, language: null };
+      const lang = cardLanguage(hass, language);
       // Render again only when one of the entities changed.
       const signature = JSON.stringify([
         lang,

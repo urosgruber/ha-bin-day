@@ -70,7 +70,11 @@ class SimbioClient:
     async def async_search(self, query: str) -> list[SimbioAddress]:
         """Return all addresses that match the query."""
         return [
-            SimbioAddress(str(i["id"]), str(i.get("name", "")), str(i.get("city", "")))
+            SimbioAddress(
+                str(i["id"]),
+                str(i.get("name", "")).strip(),
+                str(i.get("city", "")).strip(),
+            )
             for i in await self._query(query)
             if "id" in i
         ]

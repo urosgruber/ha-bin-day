@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+
+from .const import CONF_LANGUAGE
 
 NONE_STATE = "none"
 
@@ -12,8 +15,15 @@ NEXT_PREFIX: dict[str, dict[str, str]] = {
 }
 
 
-def lang_for(hass: HomeAssistant) -> str:
-    """Return "sl" when the HA language is Slovenian, else "en"."""
+def lang_for(hass: HomeAssistant, entry: ConfigEntry) -> str:
+    """Return the language of the entry.
+
+    The language option "en" or "sl" wins. Otherwise ("auto" or not set) the
+    Home Assistant language decides: "sl" when it is Slovenian, else "en".
+    """
+    chosen = entry.options.get(CONF_LANGUAGE)
+    if chosen in ("en", "sl"):
+        return chosen
     language = hass.config.language or ""
     return "sl" if language.lower().startswith("sl") else "en"
 

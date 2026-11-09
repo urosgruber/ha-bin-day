@@ -466,3 +466,17 @@ async def test_missing_warning_retried_after_failed_send(
     await tick(hass, freezer, at(16, 19))
     assert messages(calls) == [EN_MISSING]
     await unload(hass, entry)
+
+
+async def test_language_option_wins_in_reminder(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    hass.config.language = "en"
+    calls = async_mock_service(hass, "notify", "phone_a")
+    async_mock_service(hass, "notify", "phone_b")
+    freezer.move_to(at(12, 18, 45))
+    entry = make_entry(reminder_options(language="sl"))
+    assert await setup(hass, entry, FakeSource({"mko": [d(13)]}))
+    await tick(hass, freezer, at(12, 19))
+    assert messages(calls) == ["Jutri odvoz: Mixed waste"]
+    await unload(hass, entry)

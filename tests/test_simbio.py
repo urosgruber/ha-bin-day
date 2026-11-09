@@ -136,3 +136,13 @@ async def test_non_dict_item_is_source_error(client, aioclient_mock):
     assert not isinstance(err.value, AddressNotFound)
     with pytest.raises(SourceError):
         await client.async_search("x")
+
+
+async def test_search_strips_whitespace(client, aioclient_mock):
+    aioclient_mock.post(
+        SIMBIO_URL,
+        json=[{"id": "5", "name": "LJUBLJANSKA CESTA 1 A ", "city": " CELJE  "}],
+    )
+    [address] = await client.async_search("ljubljanska")
+    assert address.name == "LJUBLJANSKA CESTA 1 A"
+    assert address.city == "CELJE"

@@ -36,6 +36,7 @@ from .const import (
     CONF_COLLECTION_TIME,
     CONF_DAY_BEFORE_TIME,
     CONF_EVENING_TIME,
+    CONF_LANGUAGE,
     CONF_MISSING_WARNING,
     CONF_MORNING_TIME,
     CONF_NOTIFY_TARGETS,
@@ -43,6 +44,8 @@ from .const import (
     CONF_TYPES,
     DOMAIN,
     INTERVAL_MAX,
+    LANGUAGE_AUTO,
+    LANGUAGES,
     INTERVAL_MIN,
     TYPE_DEFAULTS,
     default_color,
@@ -457,11 +460,12 @@ class BinDayOptionsFlow(OptionsFlow):
     async def async_step_general(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Set the missing-data warning and the collection time."""
+        """Set the missing-data warning, the collection time and the language."""
         options = self.config_entry.options
         if user_input is not None:
             changes: dict[str, Any] = {
-                CONF_MISSING_WARNING: bool(user_input[CONF_MISSING_WARNING])
+                CONF_MISSING_WARNING: bool(user_input[CONF_MISSING_WARNING]),
+                CONF_LANGUAGE: user_input.get(CONF_LANGUAGE, LANGUAGE_AUTO),
             }
             new = {**options, **changes}
             if user_input.get(CONF_COLLECTION_TIME):
@@ -475,6 +479,15 @@ class BinDayOptionsFlow(OptionsFlow):
                     CONF_MISSING_WARNING, default=options.get(CONF_MISSING_WARNING, True)
                 ): BooleanSelector(),
                 vol.Optional(CONF_COLLECTION_TIME): TimeSelector(),
+                vol.Required(
+                    CONF_LANGUAGE, default=options.get(CONF_LANGUAGE, LANGUAGE_AUTO)
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=list(LANGUAGES),
+                        mode=SelectSelectorMode.DROPDOWN,
+                        translation_key=CONF_LANGUAGE,
+                    )
+                ),
             }
         )
         suggested = (

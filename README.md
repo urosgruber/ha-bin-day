@@ -89,6 +89,7 @@ Open the integration and choose **Configure**.
   - Morning before collection: 08:00, off.
 - **General:**
   - A warning when data is missing.
+  - **Language:** the language of the next-collection sensor, the card and the reminders. Choose Automatic (the Home Assistant language, the default), English or Slovenian. The card reads the language from the next-collection sensor (attribute `language`).
   - An optional collection time. The card then shows "until HH:MM". Today counts as done 1 hour after that time. Without a collection time, today is done at 12:00.
 
 ## Estimates

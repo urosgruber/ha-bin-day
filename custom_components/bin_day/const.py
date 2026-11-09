@@ -19,6 +19,11 @@ CONF_MORNING_TIME = "morning_time"
 CONF_DAY_BEFORE_TIME = "day_before_time"
 CONF_MISSING_WARNING = "missing_warning"
 CONF_COLLECTION_TIME = "collection_time"
+CONF_LANGUAGE = "language"
+
+# Values of the language option.
+LANGUAGE_AUTO = "auto"
+LANGUAGES = (LANGUAGE_AUTO, "en", "sl")
 
 # Estimates.
 DEFAULT_INTERVAL = 14
@@ -65,5 +70,5 @@ def default_color(index: int) -> str:
 # Simbio web service.
 SIMBIO_URL = "https://www.simbio.si/sl/moj-dan-odvoza-odpadkov"
 SIMBIO_ACTION = "simbioOdvozOdpadkov"
-USER_AGENT = "BinDay/0.1.0 (+https://github.com/urosgruber/ha-bin-day)"
+USER_AGENT = "BinDay/0.1.1 (+https://github.com/urosgruber/ha-bin-day)"
 REQUEST_TIMEOUT = 20
