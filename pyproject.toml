@@ -1,0 +1,18 @@
+[project]
+name = "ha-bin-day"
+version = "0.1.0"
+description = "Bin Day: Home Assistant integration for waste collection dates"
+requires-python = ">=3.14.2"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest-homeassistant-custom-component==0.13.375",
+    "pytest-asyncio",
+    "home-assistant-frontend==20260930.5",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
