@@ -16,3 +16,9 @@ dev = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
+# Any other warning fails the run. HA's own http component triggers aiohttp's
+# NotAppKeyWarning; tests/conftest.py also ignores it for "-W error".
+filterwarnings = [
+    "error",
+    "ignore::aiohttp.web_exceptions.NotAppKeyWarning",
+]

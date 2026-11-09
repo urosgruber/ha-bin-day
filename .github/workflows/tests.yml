@@ -2,7 +2,9 @@ name: Tests
 
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   pytest:
@@ -13,9 +15,9 @@ jobs:
       - name: Install Python 3.14
         run: uv python install 3.14
       - name: Install dependencies
-        run: uv sync --python 3.14
+        run: uv sync --locked --python 3.14
       - name: Run tests
-        run: uv run pytest
+        run: uv run --locked pytest -q -W error
 
   card:
     runs-on: ubuntu-latest
