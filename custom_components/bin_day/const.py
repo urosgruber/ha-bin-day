@@ -70,5 +70,5 @@ def default_color(index: int) -> str:
 # Simbio web service.
 SIMBIO_URL = "https://www.simbio.si/sl/moj-dan-odvoza-odpadkov"
 SIMBIO_ACTION = "simbioOdvozOdpadkov"
-USER_AGENT = "BinDay/0.1.1 (+https://github.com/urosgruber/ha-bin-day)"
+USER_AGENT = "BinDay/0.1.2 (+https://github.com/urosgruber/ha-bin-day)"
 REQUEST_TIMEOUT = 20

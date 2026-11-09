@@ -289,3 +289,54 @@ async def test_pick_list_is_capped_at_50(hass: HomeAssistant) -> None:
     assert result["step_id"] == "pick"
     options = result["data_schema"].schema["address_id"].config["options"]
     assert [o["value"] for o in options] == [str(i) for i in range(50)]
+
+
+async def test_last_step_flags(hass: HomeAssistant) -> None:
+    """Steps that always lead to another form show Next, not Submit."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+    assert result["step_id"] == "user"
+    assert result["last_step"] is False
+    with patch(SEARCH, return_value=ADDRESSES):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"address": "Ljubljanska cesta 1 A"}
+        )
+    assert result["step_id"] == "pick"
+    assert result["last_step"] is False
+    with patch(FETCH, return_value=FETCHED):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"address_id": ADDRESSES[0].id}
+        )
+    assert result["step_id"] == "types"
+    assert result["last_step"] is False
+    # The multi-select keeps the order of the source.
+    assert result["data_schema"].schema["types"].config["sort"] is False
+    # An error re-shows the form with the same flag.
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"types": []}
+    )
+    assert result["errors"] == {"base": "no_types"}
+    assert result["last_step"] is False
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["step_id"] == "type"
+    assert result["last_step"] is False
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"name": "x", "color": "green"}
+    )
+    assert result["errors"] == {"color": "invalid_color"}
+    assert result["last_step"] is False
+    result = await _accept_types(hass, result)
+    assert result["step_id"] == "name"
+    assert result.get("last_step") is not False
+
+
+async def test_last_step_flags_user_errors(hass: HomeAssistant) -> None:
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"address": "ab"}
+    )
+    assert result["errors"] == {"address": "too_short"}
+    assert result["last_step"] is False

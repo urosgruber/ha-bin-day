@@ -360,3 +360,36 @@ async def test_options_general_language_rejects_unknown(
                 result["flow_id"], {CONF_MISSING_WARNING: True, CONF_LANGUAGE: "de"}
             )
     await unload(hass, entry)
+
+
+async def test_options_last_step_flags_and_picker_order(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    entry = await _entry(hass, freezer)
+    result = await _menu(hass, entry, "types")
+    assert result["step_id"] == "types"
+    assert result["last_step"] is False
+    schema = result["data_schema"].schema
+    marker = next(k for k in schema if str(k) == "type")
+    config = schema[marker].config
+    assert [o["value"] for o in config["options"]] == list(get_types(entry))
+    assert config["sort"] is False
+    assert marker.default() == next(iter(get_types(entry)))
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"type": "emb"}
+    )
+    assert result["step_id"] == "type"
+    assert result.get("last_step") is not False
+    await unload(hass, entry)
+
+
+async def test_options_finishing_forms_do_not_set_last_step_false(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    entry = await _entry(hass, freezer)
+    for choice in ("reminders", "general"):
+        result = await _menu(hass, entry, choice)
+        assert result["type"] is FlowResultType.FORM
+        assert result.get("last_step") is not False
+        hass.config_entries.options.async_abort(result["flow_id"])
+    await unload(hass, entry)

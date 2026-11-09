@@ -176,6 +176,7 @@ class BinDayConfigFlow(ConfigFlow, domain=DOMAIN):
                 vol.Schema({vol.Required("address"): str}), user_input
             ),
             errors=errors,
+            last_step=False,
         )
 
     async def async_step_pick(
@@ -212,6 +213,7 @@ class BinDayConfigFlow(ConfigFlow, domain=DOMAIN):
                 }
             ),
             errors=errors,
+            last_step=False,
         )
 
     async def async_step_types(
@@ -244,6 +246,7 @@ class BinDayConfigFlow(ConfigFlow, domain=DOMAIN):
                         options=options,
                         multiple=True,
                         mode=SelectSelectorMode.LIST,
+                        sort=False,
                     )
                 )
             }
@@ -252,6 +255,7 @@ class BinDayConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="types",
             data_schema=self.add_suggested_values_to_schema(schema, user_input),
             errors=errors,
+            last_step=False,
         )
 
     async def async_step_type(
@@ -275,6 +279,7 @@ class BinDayConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=self.add_suggested_values_to_schema(schema, user_input),
             description_placeholders={"type": defaults["name"]},
             errors=errors,
+            last_step=False,
         )
 
     async def async_step_name(
@@ -346,11 +351,16 @@ class BinDayOptionsFlow(OptionsFlow):
             step_id="types",
             data_schema=vol.Schema(
                 {
-                    vol.Required("type"): SelectSelector(
-                        SelectSelectorConfig(options=options, mode=SelectSelectorMode.LIST)
+                    vol.Required("type", default=next(iter(types))): SelectSelector(
+                        SelectSelectorConfig(
+                            options=options,
+                            mode=SelectSelectorMode.LIST,
+                            sort=False,
+                        )
                     )
                 }
             ),
+            last_step=False,
         )
 
     async def async_step_type(
