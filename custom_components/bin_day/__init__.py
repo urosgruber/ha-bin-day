@@ -9,8 +9,9 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import config_validation as cv, issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 
@@ -21,7 +22,7 @@ from .const import (
     CONF_REMINDERS_ENABLED,
     DOMAIN,
 )
-from .coordinator import BinDayCoordinator
+from .coordinator import STORE_VERSION, BinDayCoordinator
 from .reminders import ReminderScheduler
 from .simbio import SimbioAddress, SimbioClient, SimbioSource
 from .source import Source
@@ -95,3 +96,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: BinDayConfigEntry) -> b
     return await hass.config_entries.async_unload_platforms(
         entry, entry.runtime_data.platforms
     )
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Delete the repair issue and the stored history of a removed entry."""
+    ir.async_delete_issue(hass, DOMAIN, f"address_not_found_{entry.entry_id}")
+    await Store(hass, STORE_VERSION, f"{DOMAIN}.{entry.entry_id}").async_remove()

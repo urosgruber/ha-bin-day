@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.bin_day import _create_source
@@ -74,3 +75,29 @@ async def test_card_is_served(hass: HomeAssistant, hass_client) -> None:
     assert resp.status == 200
     body = await resp.text()
     assert 'customElements.define("bin-day-card"' in body
+
+
+async def test_remove_entry_deletes_issue_and_store(hass: HomeAssistant, hass_storage) -> None:
+    """Removing the entry deletes its repair issue and its store."""
+    entry = MockConfigEntry(domain="bin_day", data=DATA)
+    entry.add_to_hass(hass)
+    with patch("custom_components.bin_day._create_source", return_value=_Source()):
+        assert await hass.config_entries.async_setup(entry.entry_id) is True
+        await hass.async_block_till_done()
+    store_key = f"bin_day.{entry.entry_id}"
+    assert store_key in hass_storage
+    issue_id = f"address_not_found_{entry.entry_id}"
+    ir.async_create_issue(
+        hass,
+        "bin_day",
+        issue_id,
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="address_not_found",
+        translation_placeholders={"address": "x"},
+    )
+
+    assert await hass.config_entries.async_remove(entry.entry_id)
+    await hass.async_block_till_done()
+    assert ir.async_get(hass).async_get_issue("bin_day", issue_id) is None
+    assert store_key not in hass_storage
