@@ -63,5 +63,57 @@
         "name": "Naslednji odvoz"
       }
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Bin Day",
+        "menu_options": {
+          "types": "Vrste odpadkov",
+          "reminders": "Opomniki",
+          "general": "Splošno"
+        }
+      },
+      "types": {
+        "title": "Vrste odpadkov",
+        "description": "Izberi vrsto, ki jo želiš spremeniti.",
+        "data": {
+          "type": "Vrsta odpadkov"
+        }
+      },
+      "type": {
+        "title": "{type}",
+        "description": "Ime, ikona in barva za {type}. Uporabi barvo v obliki #00a136. Interval mora biti od 7 do 35 dni.",
+        "data": {
+          "name": "Ime",
+          "icon": "Ikona",
+          "color": "Barva",
+          "estimate": "Oceni datume",
+          "interval": "Interval v dneh (prazno = nauči se)"
+        }
+      },
+      "reminders": {
+        "title": "Opomniki",
+        "data": {
+          "reminders_enabled": "Pošiljaj opomnike",
+          "notify_targets": "Pošlji na",
+          "evening_time": "Večer prej",
+          "morning_time": "Zjutraj na dan odvoza",
+          "day_before_time": "Zjutraj dan prej"
+        }
+      },
+      "general": {
+        "title": "Splošno",
+        "data": {
+          "missing_warning": "Opozori, ko podatki manjkajo",
+          "collection_time": "Ura odvoza (neobvezno)"
+        }
+      }
+    },
+    "error": {
+      "invalid_color": "Uporabi barvo v obliki #00a136.",
+      "invalid_name": "Vnesi ime.",
+      "invalid_interval": "Vnesi celo število od 7 do 35 ali pusti prazno."
+    }
   }
 }

@@ -55,12 +55,17 @@ class BinDayData:
     last_success: datetime | None
 
 
-def get_type_configs(entry: ConfigEntry) -> dict[str, dict[str, Any]]:
+def get_types(entry: ConfigEntry) -> dict[str, dict[str, Any]]:
     """Return type key -> {name, icon, color, estimate, interval}, in config order.
 
-    Task 7 replaces this with get_types(entry).
+    The entry data holds the setup values. The options hold per-field
+    overrides, and they win. This is the only place that reads the types.
     """
-    return dict(entry.data.get(CONF_TYPES) or {})
+    overrides = entry.options.get(CONF_TYPES) or {}
+    types: dict[str, dict[str, Any]] = {}
+    for key, conf in (entry.data.get(CONF_TYPES) or {}).items():
+        types[key] = {**conf, **(overrides.get(key) or {})}
+    return types
 
 
 def _parse_time(value: Any) -> time | None:
@@ -104,7 +109,7 @@ class BinDayCoordinator(DataUpdateCoordinator[BinDayData]):
     @property
     def type_keys(self) -> list[str]:
         """Return the configured type keys in config order."""
-        return list(get_type_configs(self.config_entry))
+        return list(get_types(self.config_entry))
 
     # ----- store -----
 
@@ -203,7 +208,7 @@ class BinDayCoordinator(DataUpdateCoordinator[BinDayData]):
 
     def _build(self, today: date, *, source_ok: bool) -> BinDayData:
         resolved: dict[str, Resolved] = {}
-        for key, conf in get_type_configs(self.config_entry).items():
+        for key, conf in get_types(self.config_entry).items():
             real = [d for d in self._last_real_dates.get(key, []) if d >= today]
             resolved[key] = resolve(
                 self.history.get(key, TypeHistory()),

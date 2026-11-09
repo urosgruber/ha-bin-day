@@ -12,7 +12,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from .const import CONF_COLLECTION_TIME
-from .coordinator import BinDayCoordinator, _parse_time, get_type_configs
+from .coordinator import BinDayCoordinator, _parse_time, get_types
 from .entity import BinDayEntity
 from .schedule import Resolved, due_types, is_done
 from .texts import NONE_STATE, lang_for, next_state
@@ -27,7 +27,7 @@ async def async_setup_entry(
     coordinator: BinDayCoordinator = entry.runtime_data
     entities: list[BinDayEntity] = [
         BinDayTypeSensor(coordinator, entry, key, index)
-        for index, key in enumerate(get_type_configs(entry))
+        for index, key in enumerate(get_types(entry))
     ]
     entities.append(BinDayNextSensor(coordinator, entry))
     async_add_entities(entities)
@@ -46,7 +46,7 @@ class BinDayTypeSensor(BinDayEntity, SensorEntity):
         super().__init__(coordinator, entry)
         self._key = key
         self._index = index
-        conf = get_type_configs(entry)[key]
+        conf = get_types(entry)[key]
         self._conf = conf
         self._attr_name = conf["name"]
         self._attr_icon = conf.get("icon")
@@ -113,7 +113,7 @@ class BinDayNextSensor(BinDayEntity, SensorEntity):
         kind, keys, _day, _done = self._compute()
         if kind == "none":
             return NONE_STATE
-        configs = get_type_configs(self._entry)
+        configs = get_types(self._entry)
         resolved = self.coordinator.data.resolved
         names = [
             configs[key]["name"] + ("*" if resolved[key].estimate else "") for key in keys

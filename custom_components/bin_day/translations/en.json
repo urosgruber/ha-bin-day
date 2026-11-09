@@ -63,5 +63,57 @@
         "name": "Next collection"
       }
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Bin Day",
+        "menu_options": {
+          "types": "Waste types",
+          "reminders": "Reminders",
+          "general": "General"
+        }
+      },
+      "types": {
+        "title": "Waste types",
+        "description": "Choose the type to change.",
+        "data": {
+          "type": "Waste type"
+        }
+      },
+      "type": {
+        "title": "{type}",
+        "description": "Name, icon and colour for {type}. Use a colour like #00a136. The interval must be 7 to 35 days.",
+        "data": {
+          "name": "Name",
+          "icon": "Icon",
+          "color": "Colour",
+          "estimate": "Estimate dates",
+          "interval": "Interval in days (empty = learn)"
+        }
+      },
+      "reminders": {
+        "title": "Reminders",
+        "data": {
+          "reminders_enabled": "Send reminders",
+          "notify_targets": "Send to",
+          "evening_time": "Evening before",
+          "morning_time": "Morning of the day",
+          "day_before_time": "Morning the day before"
+        }
+      },
+      "general": {
+        "title": "General",
+        "data": {
+          "missing_warning": "Warn when data is missing",
+          "collection_time": "Collection time (optional)"
+        }
+      }
+    },
+    "error": {
+      "invalid_color": "Use a colour like #00a136.",
+      "invalid_name": "Enter a name.",
+      "invalid_interval": "Enter a whole number from 7 to 35, or leave it empty."
+    }
   }
 }

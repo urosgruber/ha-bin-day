@@ -7,25 +7,51 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
+from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
+    BooleanSelector,
     IconSelector,
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
     SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
     TextSelector,
+    TimeSelector,
 )
 
 from .const import (
     CONF_ADDRESS_ID,
     CONF_ADDRESS_NAME,
     CONF_CITY,
+    CONF_COLLECTION_TIME,
+    CONF_DAY_BEFORE_TIME,
+    CONF_EVENING_TIME,
+    CONF_MISSING_WARNING,
+    CONF_MORNING_TIME,
+    CONF_NOTIFY_TARGETS,
+    CONF_REMINDERS_ENABLED,
     CONF_TYPES,
     DOMAIN,
+    INTERVAL_MAX,
+    INTERVAL_MIN,
     TYPE_DEFAULTS,
     default_color,
+)
+from .coordinator import (
+    DEFAULT_DAY_BEFORE_TIME,
+    DEFAULT_EVENING_TIME,
+    DEFAULT_MORNING_TIME,
+    get_types,
 )
 from .simbio import SimbioAddress, SimbioClient
 from .source import SourceError
@@ -85,10 +111,25 @@ def type_result(user_input: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _hhmm(value: str) -> str:
+    """Normalise a time selector value (HH:MM or HH:MM:SS) to HH:MM."""
+    return value[:5]
+
+
+# Notify actions that are not a person's device.
+_NOT_TARGETS = {"send_message", "persistent_notification"}
+
+
 class BinDayConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Bin Day."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        """Return the options flow."""
+        return BinDayOptionsFlow()
 
     def __init__(self) -> None:
         self._matches: dict[str, SimbioAddress] = {}
@@ -249,4 +290,181 @@ class BinDayConfigFlow(ConfigFlow, domain=DOMAIN):
                     ): str
                 }
             ),
+        )
+
+
+class BinDayOptionsFlow(OptionsFlow):
+    """Edit the waste types, the reminders and the general settings.
+
+    Each sub-step saves at once and ends the flow. The entry reloads.
+    """
+
+    def __init__(self) -> None:
+        self._key: str | None = None
+
+    @property
+    def _sl(self) -> bool:
+        return self.hass.config.language.lower().startswith("sl")
+
+    def _save(self, **changes: Any) -> ConfigFlowResult:
+        options = {**self.config_entry.options, **changes}
+        return self.async_create_entry(data=options)
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Show the menu."""
+        return self.async_show_menu(
+            step_id="init", menu_options=["types", "reminders", "general"]
+        )
+
+    # ----- types -----
+
+    async def async_step_types(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Choose which waste type to edit."""
+        types = get_types(self.config_entry)
+        if user_input is not None:
+            self._key = user_input["type"]
+            return await self.async_step_type()
+        options = [
+            SelectOptionDict(value=key, label=conf["name"]) for key, conf in types.items()
+        ]
+        return self.async_show_form(
+            step_id="types",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("type"): SelectSelector(
+                        SelectSelectorConfig(options=options, mode=SelectSelectorMode.LIST)
+                    )
+                }
+            ),
+        )
+
+    async def async_step_type(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Edit the name, icon, colour, estimate and interval of one type."""
+        assert self._key is not None
+        current = get_types(self.config_entry)[self._key]
+        errors: dict[str, str] = {}
+        interval: int | None = None
+        if user_input is not None:
+            errors = validate_type(user_input)
+            raw = user_input.get("interval")
+            if raw is not None:
+                interval = int(raw) if float(raw).is_integer() else -1
+                if not INTERVAL_MIN <= interval <= INTERVAL_MAX:
+                    errors["interval"] = "invalid_interval"
+            if not errors:
+                result = type_result(user_input)
+                result["estimate"] = bool(user_input["estimate"])
+                result["interval"] = interval
+                saved = dict(self.config_entry.options.get(CONF_TYPES) or {})
+                saved[self._key] = result
+                return self._save(**{CONF_TYPES: saved})
+        schema = type_schema(
+            {k: current[k] for k in ("name", "icon", "color")}
+        ).extend(
+            {
+                vol.Required("estimate", default=current.get("estimate", True)): BooleanSelector(),
+                vol.Optional("interval"): NumberSelector(
+                    NumberSelectorConfig(step=1, mode=NumberSelectorMode.BOX)
+                ),
+            }
+        )
+        suggested = user_input
+        if suggested is None and current.get("interval") is not None:
+            suggested = {"interval": current["interval"]}
+        return self.async_show_form(
+            step_id="type",
+            data_schema=self.add_suggested_values_to_schema(schema, suggested),
+            description_placeholders={"type": current["name"]},
+            errors=errors,
+        )
+
+    # ----- reminders -----
+
+    async def async_step_reminders(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Set the reminders, their targets and times."""
+        options = self.config_entry.options
+        services = self.hass.services.async_services_for_domain("notify")
+        offered = sorted(name for name in services if name not in _NOT_TARGETS)
+        if user_input is not None:
+            # Saved targets that are no longer offered are dropped here.
+            return self._save(
+                **{
+                    CONF_REMINDERS_ENABLED: bool(user_input[CONF_REMINDERS_ENABLED]),
+                    CONF_NOTIFY_TARGETS: list(user_input.get(CONF_NOTIFY_TARGETS, [])),
+                    CONF_EVENING_TIME: _hhmm(user_input[CONF_EVENING_TIME]),
+                    CONF_MORNING_TIME: _hhmm(user_input[CONF_MORNING_TIME]),
+                    CONF_DAY_BEFORE_TIME: _hhmm(user_input[CONF_DAY_BEFORE_TIME]),
+                }
+            )
+        targets = [t for t in options.get(CONF_NOTIFY_TARGETS, []) if t in offered]
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_REMINDERS_ENABLED,
+                    default=options.get(CONF_REMINDERS_ENABLED, False),
+                ): BooleanSelector(),
+                vol.Optional(CONF_NOTIFY_TARGETS, default=targets): SelectSelector(
+                    SelectSelectorConfig(
+                        options=[SelectOptionDict(value=n, label=n) for n in offered],
+                        multiple=True,
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Required(
+                    CONF_EVENING_TIME,
+                    default=options.get(CONF_EVENING_TIME, DEFAULT_EVENING_TIME),
+                ): TimeSelector(),
+                vol.Required(
+                    CONF_MORNING_TIME,
+                    default=options.get(CONF_MORNING_TIME, DEFAULT_MORNING_TIME),
+                ): TimeSelector(),
+                vol.Required(
+                    CONF_DAY_BEFORE_TIME,
+                    default=options.get(CONF_DAY_BEFORE_TIME, DEFAULT_DAY_BEFORE_TIME),
+                ): TimeSelector(),
+            }
+        )
+        return self.async_show_form(step_id="reminders", data_schema=schema)
+
+    # ----- general -----
+
+    async def async_step_general(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Set the missing-data warning and the collection time."""
+        options = self.config_entry.options
+        if user_input is not None:
+            changes: dict[str, Any] = {
+                CONF_MISSING_WARNING: bool(user_input[CONF_MISSING_WARNING])
+            }
+            new = {**options, **changes}
+            if user_input.get(CONF_COLLECTION_TIME):
+                new[CONF_COLLECTION_TIME] = _hhmm(user_input[CONF_COLLECTION_TIME])
+            else:
+                new.pop(CONF_COLLECTION_TIME, None)
+            return self.async_create_entry(data=new)
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_MISSING_WARNING, default=options.get(CONF_MISSING_WARNING, True)
+                ): BooleanSelector(),
+                vol.Optional(CONF_COLLECTION_TIME): TimeSelector(),
+            }
+        )
+        suggested = (
+            {CONF_COLLECTION_TIME: options[CONF_COLLECTION_TIME]}
+            if options.get(CONF_COLLECTION_TIME)
+            else None
+        )
+        return self.async_show_form(
+            step_id="general",
+            data_schema=self.add_suggested_values_to_schema(schema, suggested),
         )
