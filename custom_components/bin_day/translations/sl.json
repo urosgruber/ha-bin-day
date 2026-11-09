@@ -42,7 +42,8 @@
       "cannot_connect": "Simbio ni dosegljiv. Poskusi kasneje.",
       "invalid_color": "Uporabi barvo v obliki #00a136.",
       "no_types": "Izberi vsaj eno vrsto odpadkov.",
-      "invalid_name": "Vnesi ime."
+      "invalid_name": "Vnesi ime.",
+      "too_short": "Vpiši vsaj 3 znake."
     },
     "abort": {
       "already_configured": "Ta naslov je že nastavljen."

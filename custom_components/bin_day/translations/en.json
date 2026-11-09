@@ -42,7 +42,8 @@
       "cannot_connect": "Cannot reach Simbio. Try again later.",
       "invalid_color": "Use a colour like #00a136.",
       "no_types": "Choose at least one waste type.",
-      "invalid_name": "Enter a name."
+      "invalid_name": "Enter a name.",
+      "too_short": "Enter at least 3 characters."
     },
     "abort": {
       "already_configured": "This address is already set up."

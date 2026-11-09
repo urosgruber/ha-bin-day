@@ -124,7 +124,7 @@ async def test_cannot_connect_on_search(hass: HomeAssistant) -> None:
     )
     with patch(SEARCH, side_effect=SourceError("down")):
         result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {"address": "x"}
+            result["flow_id"], {"address": "Celjska"}
         )
     assert result["step_id"] == "user"
     assert result["errors"] == {"base": "cannot_connect"}
@@ -255,3 +255,37 @@ async def test_no_match_keeps_address(hass: HomeAssistant) -> None:
     values = {str(k): k.description["suggested_value"] for k in result["data_schema"].schema
               if k.description}
     assert values == {"address": "Ljubljanska cesta 1 A"}
+
+
+async def test_short_address_is_rejected(hass: HomeAssistant) -> None:
+    """Fewer than 3 characters after stripping is too short; no search runs."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+    with patch(SEARCH, return_value=ADDRESSES) as search:
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"address": "  ab  "}
+        )
+    assert result["step_id"] == "user"
+    assert result["errors"] == {"address": "too_short"}
+    search.assert_not_called()
+
+
+async def test_address_is_stripped(hass: HomeAssistant) -> None:
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+    with patch(SEARCH, return_value=ADDRESSES) as search:
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"address": "  Celjska 5  "}
+        )
+    assert result["step_id"] == "pick"
+    search.assert_called_once_with("Celjska 5")
+
+
+async def test_pick_list_is_capped_at_50(hass: HomeAssistant) -> None:
+    many = [SimbioAddress(str(i), f"CESTA {i}", "CELJE") for i in range(80)]
+    result = await _start(hass, many)
+    assert result["step_id"] == "pick"
+    options = result["data_schema"].schema["address_id"].config["options"]
+    assert [o["value"] for o in options] == [str(i) for i in range(50)]

@@ -58,6 +58,10 @@ from .source import SourceError
 
 _COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 _UNKNOWN_ICON = "mdi:delete"
+# The address search needs this many characters; the pick list shows at most
+# this many matches.
+MIN_SEARCH_LENGTH = 3
+MAX_MATCHES = 50
 _NO_COLLECTION = {"en": "(no collection now)", "sl": "(trenutno ni odvoza)"}
 
 
@@ -148,17 +152,21 @@ class BinDayConfigFlow(ConfigFlow, domain=DOMAIN):
         """Ask for the street and house number, then search Simbio."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            client = SimbioClient(async_get_clientsession(self.hass))
-            try:
-                matches = await client.async_search(user_input["address"])
-            except SourceError:
-                errors["base"] = "cannot_connect"
+            text = user_input["address"].strip()
+            if len(text) < MIN_SEARCH_LENGTH:
+                errors["address"] = "too_short"
             else:
-                if not matches:
-                    errors["base"] = "no_match"
+                client = SimbioClient(async_get_clientsession(self.hass))
+                try:
+                    matches = await client.async_search(text)
+                except SourceError:
+                    errors["base"] = "cannot_connect"
                 else:
-                    self._matches = {m.id: m for m in matches}
-                    return await self.async_step_pick()
+                    if not matches:
+                        errors["base"] = "no_match"
+                    else:
+                        self._matches = {m.id: m for m in matches[:MAX_MATCHES]}
+                        return await self.async_step_pick()
         return self.async_show_form(
             step_id="user",
             data_schema=self.add_suggested_values_to_schema(
