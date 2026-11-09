@@ -53,5 +53,15 @@
       "title": "Simbio ne pozna več naslova {address}",
       "description": "Odstrani Bin Day in ga dodaj znova z novim naslovom."
     }
+  },
+  "entity": {
+    "sensor": {
+      "collection": {
+        "name": "Odvoz"
+      },
+      "next": {
+        "name": "Naslednji odvoz"
+      }
+    }
   }
 }

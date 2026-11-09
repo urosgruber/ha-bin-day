@@ -12,8 +12,8 @@ from .coordinator import BinDayCoordinator
 from .simbio import SimbioAddress, SimbioClient, SimbioSource
 from .source import Source
 
-# Tasks 6 and 8 add Platform.SENSOR and Platform.SWITCH.
-PLATFORMS: list[Platform] = []
+# Task 8 adds Platform.SWITCH.
+PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 type BinDayConfigEntry = ConfigEntry[BinDayCoordinator]
 

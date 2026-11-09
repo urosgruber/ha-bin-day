@@ -53,5 +53,15 @@
       "title": "Simbio no longer knows the address {address}",
       "description": "Remove Bin Day and add it again with the new address."
     }
+  },
+  "entity": {
+    "sensor": {
+      "collection": {
+        "name": "Collection"
+      },
+      "next": {
+        "name": "Next collection"
+      }
+    }
   }
 }
