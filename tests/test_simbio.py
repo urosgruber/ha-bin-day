@@ -120,3 +120,19 @@ async def test_source_delegates(client, aioclient_mock):
     aioclient_mock.post(SIMBIO_URL, text=fixture("simbio_one.json"))
     source = SimbioSource(client, SimbioAddress(ID_1A, "LJUBLJANSKA CESTA 1 A", "CELJE"))
     assert (await source.async_fetch())["emb"] == [date(2026, 11, 13)]
+
+
+async def test_fetch_item_without_types_is_error(client, aioclient_mock):
+    aioclient_mock.post(SIMBIO_URL, text='[{"id": "1", "name": "A", "city": "B"}]')
+    with pytest.raises(SourceError) as err:
+        await client.async_fetch_address(SimbioAddress("1", "A", "B"))
+    assert not isinstance(err.value, AddressNotFound)
+
+
+async def test_non_dict_item_is_source_error(client, aioclient_mock):
+    aioclient_mock.post(SIMBIO_URL, text='["x"]')
+    with pytest.raises(SourceError) as err:
+        await client.async_fetch_address(SimbioAddress("1", "A", "B"))
+    assert not isinstance(err.value, AddressNotFound)
+    with pytest.raises(SourceError):
+        await client.async_search("x")

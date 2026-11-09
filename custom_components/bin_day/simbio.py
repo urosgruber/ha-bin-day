@@ -63,7 +63,9 @@ class SimbioClient:
             raise SourceError("Simbio answer is not JSON") from err
         if not isinstance(payload, list):
             raise SourceError("Simbio answer is not a list")
-        return [item for item in payload if isinstance(item, dict)]
+        if not all(isinstance(item, dict) for item in payload):
+            raise SourceError("Simbio answer has an unexpected item")
+        return payload
 
     async def async_search(self, query: str) -> list[SimbioAddress]:
         """Return all addresses that match the query."""
@@ -84,6 +86,8 @@ class SimbioClient:
                     if key.startswith(_NEXT_PREFIX) and len(key) > len(_NEXT_PREFIX):
                         parsed = parse_date(value if isinstance(value, str) else None)
                         result[key[len(_NEXT_PREFIX):]] = [parsed] if parsed else []
+                if not result:
+                    raise SourceError("Simbio item has no collection types")
                 return result
         raise AddressNotFound(address.id)
 
