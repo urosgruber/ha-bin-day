@@ -496,6 +496,10 @@ class BinDayOptionsFlow(OptionsFlow):
                 errors[CONF_NOTIFY_TARGETS] = "no_targets"
         if user_input is not None and not errors:
             initial = await self._apply_switches(user_input)
+            if not enabled:
+                # Turning reminders off removes the switches. Keep every
+                # wanted state, so the switches come back as the user set them.
+                initial = {key: bool(user_input[_ON[key]]) for key in REMINDERS}
             changes: dict[str, Any] = {
                 CONF_REMINDERS_ENABLED: enabled,
                 CONF_NOTIFY_TARGETS: chosen,

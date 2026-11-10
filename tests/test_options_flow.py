@@ -719,3 +719,37 @@ def test_new_option_strings_exist_in_every_language() -> None:
         assert step["types"]["data"]["type"], name
     sl = json.loads((base / "translations/sl.json").read_text())
     assert "Send reminders" not in json.dumps(sl)
+
+
+async def test_options_reminders_disable_keeps_wanted_switch_states(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    entry = await _enabled_entry(hass, freezer)
+    with patch("custom_components.bin_day._create_source", return_value=FakeSource({})):
+        result = await _menu(hass, entry, "reminders")
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            _reminder_input(
+                **{CONF_REMINDERS_ENABLED: False},
+                evening_on=False,
+                morning_on=True,
+                day_before_on=True,
+            ),
+        )
+        assert result["type"] is FlowResultType.CREATE_ENTRY
+        await hass.async_block_till_done()
+        assert entry.options[CONF_INITIAL_SWITCH_STATES] == {
+            "evening": False,
+            "morning": True,
+            "day_before": True,
+        }
+        # The form shows the kept states while the switches do not exist.
+        result = await _menu(hass, entry, "reminders")
+        defaults = {
+            str(k): k.default() for k in result["data_schema"].schema if hasattr(k, "default")
+        }
+        assert defaults["evening_on"] is False
+        assert defaults["morning_on"] is True
+        assert defaults["day_before_on"] is True
+        hass.config_entries.options.async_abort(result["flow_id"])
+    await unload(hass, entry)
