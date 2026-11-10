@@ -4,15 +4,19 @@ from datetime import date
 from unittest.mock import patch
 
 from homeassistant.config_entries import SOURCE_USER
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.data_entry_flow import FlowResultType
 
 import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.bin_day.config_flow import phone_targets
 from custom_components.bin_day.const import (
     CONF_ADDRESS_ID,
     CONF_ADDRESS_NAME,
     CONF_CITY,
+    CONF_NOTIFY_TARGETS,
+    CONF_REMINDERS_ENABLED,
     CONF_TYPES,
     DOMAIN,
 )
@@ -50,15 +54,69 @@ async def _start(hass: HomeAssistant, matches=ADDRESSES):
         )
 
 
-async def _to_types(hass: HomeAssistant, matches=ADDRESSES, index=0):
+
+PHONES = [("iOS", "Anna iPhone"), ("android", "Ben Phone"), ("Windows", "Cat PC")]
+OLD_DEFAULTS = {
+    "mko": {
+        "name": "Mixed waste",
+        "icon": "mdi:trash-can",
+        "color": "#00a136",
+        "estimate": True,
+        "interval": None,
+    },
+    "emb": {
+        "name": "Packaging",
+        "icon": "mdi:recycle",
+        "color": "#ffdd00",
+        "estimate": True,
+        "interval": None,
+    },
+    "bio": {
+        "name": "Bio waste",
+        "icon": "mdi:leaf",
+        "color": "#8d6e63",
+        "estimate": True,
+        "interval": None,
+    },
+}
+
+
+async def _noop(call: ServiceCall) -> None:
+    return None
+
+
+def _add_phones(hass: HomeAssistant, devices=PHONES, with_service=True) -> None:
+    """Fake mobile_app entries and, optionally, their notify actions."""
+    for os_name, device_name in devices:
+        MockConfigEntry(
+            domain="mobile_app",
+            data={"os_name": os_name, "device_name": device_name},
+        ).add_to_hass(hass)
+        if with_service:
+            slug = device_name.lower().replace(" ", "_")
+            hass.services.async_register("notify", f"mobile_app_{slug}", _noop)
+
+
+def _defaults(result) -> dict:
+    return {
+        str(k): k.default()
+        for k in result["data_schema"].schema
+        if callable(k.default)
+    }
+
+
+async def _to_final(hass: HomeAssistant, matches=ADDRESSES, fetched=FETCHED):
+    """Go through the address steps and return the final form."""
     result = await _start(hass, matches)
-    with patch(FETCH, return_value=FETCHED):
-        return await hass.config_entries.flow.async_configure(
-            result["flow_id"], {"address_id": matches[index].id}
-        )
+    if result["step_id"] == "pick":
+        with patch(FETCH, return_value=fetched):
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"], {"address_id": matches[0].id}
+            )
+    return result
 
 
-async def test_full_flow(hass: HomeAssistant) -> None:
+async def test_several_matches_show_pick(hass: HomeAssistant) -> None:
     result = await _start(hass)
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "pick"
@@ -68,48 +126,235 @@ async def test_full_flow(hass: HomeAssistant) -> None:
         "label": "LJUBLJANSKA CESTA 1 A, CELJE",
     }
 
-    with patch(FETCH, return_value=FETCHED):
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {"address_id": ADDRESSES[0].id}
-        )
-    assert result["step_id"] == "types"
-    labels = {
-        o["value"]: o["label"]
-        for o in result["data_schema"].schema["types"].config["options"]
-    }
-    assert labels["bio"].endswith("(trenutno ni odvoza)") or labels["bio"].endswith(
-        "(no collection now)"
-    )
-    assert "(no collection now)" not in labels["mko"]
 
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
-    assert result["step_id"] == "type"
-    result = await _accept_types(hass, result)
+async def test_one_match_skips_pick(hass: HomeAssistant) -> None:
+    with patch(FETCH, return_value=FETCHED):
+        result = await _start(hass, ADDRESSES[:1])
     assert result["step_id"] == "name"
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"name": "Odvoz smeti"}
-    )
+    assert result["last_step"] is not False
+
+
+async def test_one_match_cannot_connect_shows_user_again(hass: HomeAssistant) -> None:
+    with patch(FETCH, side_effect=SourceError("down")):
+        result = await _start(hass, ADDRESSES[:1])
+    assert result["step_id"] == "user"
+    assert result["errors"] == {"base": "cannot_connect"}
+    values = {
+        str(k): k.description["suggested_value"]
+        for k in result["data_schema"].schema
+        if k.description
+    }
+    assert values == {"address": "Ljubljanska cesta 1 A"}
+
+
+async def test_one_match_already_configured_aborts(hass: HomeAssistant) -> None:
+    MockConfigEntry(domain=DOMAIN, unique_id=ADDRESSES[0].id).add_to_hass(hass)
+    with patch(FETCH, return_value=FETCHED):
+        result = await _start(hass, ADDRESSES[:1])
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+
+
+async def test_final_step_defaults(hass: HomeAssistant) -> None:
+    _add_phones(hass)
+    # A phone without a notify action and a notify action without a phone.
+    _add_phones(hass, [("iPadOS", "Dan Pad")], with_service=False)
+    hass.services.async_register("notify", "send_message", _noop)
+    hass.services.async_register("notify", "mobile_app_cat_pc", _noop)
+    result = await _to_final(hass)
+    assert result["step_id"] == "name"
+    assert result["last_step"] is not False
+    schema = result["data_schema"].schema
+    assert _defaults(result) == {
+        "types": ["mko", "emb", "bio"],
+        "name": "Bin Day – LJUBLJANSKA CESTA 1 A",
+        CONF_NOTIFY_TARGETS: ["mobile_app_anna_iphone", "mobile_app_ben_phone"],
+    }
+    labels = {o["value"]: o["label"] for o in schema["types"].config["options"]}
+    assert labels["bio"] == "Bio waste (no collection now)"
+    assert labels["mko"] == "Mixed waste"
+    assert schema["types"].config["sort"] is False
+    offered = [o["value"] for o in schema[CONF_NOTIFY_TARGETS].config["options"]]
+    assert offered == [
+        "mobile_app_anna_iphone",
+        "mobile_app_ben_phone",
+        "mobile_app_cat_pc",
+    ]
+
+
+async def test_phone_targets_helper(hass: HomeAssistant) -> None:
+    assert phone_targets(hass) == []
+    _add_phones(hass, [("IOS", "Zed"), ("Android", "Amy"), ("iPadOS", "Pad")])
+    _add_phones(hass, [("Linux", "Box")])
+    assert phone_targets(hass) == [
+        "mobile_app_amy",
+        "mobile_app_pad",
+        "mobile_app_zed",
+    ]
+
+
+async def test_no_phones_means_reminders_off(hass: HomeAssistant) -> None:
+    result = await _to_final(hass)
+    assert _defaults(result)[CONF_NOTIFY_TARGETS] == []
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["title"] == "Odvoz smeti"
+    assert result["options"] == {}
+    assert result["result"].options == {}
+
+
+async def test_phones_turn_reminders_on(hass: HomeAssistant) -> None:
+    _add_phones(hass)
+    result = await _to_final(hass)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    options = result["result"].options
+    assert options == {
+        CONF_REMINDERS_ENABLED: True,
+        CONF_NOTIFY_TARGETS: ["mobile_app_anna_iphone", "mobile_app_ben_phone"],
+    }
     entry = result["result"]
+    assert entry.title == "Bin Day – LJUBLJANSKA CESTA 1 A"
     assert entry.unique_id == ADDRESSES[0].id
     assert entry.data[CONF_ADDRESS_ID] == ADDRESSES[0].id
     assert entry.data[CONF_ADDRESS_NAME] == "LJUBLJANSKA CESTA 1 A"
     assert entry.data[CONF_CITY] == "CELJE"
-    types = entry.data[CONF_TYPES]
+
+
+async def test_chosen_targets_and_name(hass: HomeAssistant) -> None:
+    _add_phones(hass)
+    result = await _to_final(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"name": "Moji smeti", CONF_NOTIFY_TARGETS: ["mobile_app_ben_phone"]},
+    )
+    assert result["title"] == "Moji smeti"
+    assert result["result"].options == {
+        CONF_REMINDERS_ENABLED: True,
+        CONF_NOTIFY_TARGETS: ["mobile_app_ben_phone"],
+    }
+
+
+async def test_empty_targets_turn_reminders_off(hass: HomeAssistant) -> None:
+    _add_phones(hass)
+    result = await _to_final(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_NOTIFY_TARGETS: []}
+    )
+    assert result["result"].options == {}
+
+
+async def test_no_notify_actions_still_shows_the_field(hass: HomeAssistant) -> None:
+    result = await _to_final(hass)
+    field = result["data_schema"].schema[CONF_NOTIFY_TARGETS]
+    assert field.config["options"] == []
+    # The form must be valid with no notify action at all.
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"name": "x", CONF_NOTIFY_TARGETS: []}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+async def test_stored_types_equal_the_old_defaults(hass: HomeAssistant) -> None:
+    """Accepting every default stores what the old per-type steps stored."""
+    result = await _to_final(hass)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    types = result["result"].data[CONF_TYPES]
     assert list(types) == ["mko", "emb", "bio"]
-    assert types["mko"] == {
-        "name": "Mixed waste",
-        "icon": "mdi:trash-can",
-        "color": "#00a136",
+    assert types == OLD_DEFAULTS
+
+
+async def test_only_selected_types_are_stored(hass: HomeAssistant) -> None:
+    result = await _to_final(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"types": ["emb", "mko"]}
+    )
+    types = result["result"].data[CONF_TYPES]
+    assert list(types) == ["mko", "emb"]
+    assert types == {k: OLD_DEFAULTS[k] for k in ("mko", "emb")}
+
+
+async def test_no_type_selected(hass: HomeAssistant) -> None:
+    result = await _to_final(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"types": [], "name": "Moje"}
+    )
+    assert result["step_id"] == "name"
+    assert result["errors"] == {"base": "no_types"}
+    assert result["last_step"] is not False
+    assert result["data_schema"].schema["types"].config["sort"] is False
+    suggested = {
+        str(k): k.description["suggested_value"]
+        for k in result["data_schema"].schema
+        if k.description
+    }
+    assert suggested["name"] == "Moje"
+
+
+async def test_unknown_type_defaults(hass: HomeAssistant) -> None:
+    fetched = {"mko": [], "steklo": [date(2026, 11, 20)]}
+    result = await _to_final(hass, fetched=fetched)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    unknown = result["result"].data[CONF_TYPES]["steklo"]
+    assert unknown == {
+        "name": "steklo",
+        "icon": "mdi:delete",
+        "color": "#ffdd00",
         "estimate": True,
         "interval": None,
     }
 
 
-async def test_single_match_still_shows_pick(hass: HomeAssistant) -> None:
-    result = await _start(hass, ADDRESSES[:1])
+async def test_already_configured(hass: HomeAssistant) -> None:
+    result = await _to_final(hass)
+    await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    result = await _start(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"address_id": ADDRESSES[0].id}
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+
+
+async def test_slovenian_defaults(hass: HomeAssistant) -> None:
+    hass.config.language = "sl"
+    result = await _to_final(hass)
+    labels = {
+        o["value"]: o["label"]
+        for o in result["data_schema"].schema["types"].config["options"]
+    }
+    assert labels["bio"] == "Biološki odpadki (trenutno ni odvoza)"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["result"].data[CONF_TYPES]["mko"]["name"] == "Mešani komunalni odpadki"
+
+
+async def test_last_step_flags(hass: HomeAssistant) -> None:
+    """The first two steps show Next; the final step shows Submit."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+    assert result["last_step"] is False
+    result = await _start(hass)
     assert result["step_id"] == "pick"
+    assert result["last_step"] is False
+    with patch(FETCH, return_value=FETCHED):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"address_id": ADDRESSES[0].id}
+        )
+    assert result["step_id"] == "name"
+    assert result.get("last_step") is not False
+
+
+async def test_existing_entries_are_not_migrated(hass: HomeAssistant) -> None:
+    """Entries with options {} or with reminders off load and stay as they are."""
+    from .test_coordinator import FakeSource, make_entry, setup, unload
+
+    for options in ({}, {CONF_REMINDERS_ENABLED: False}):
+        entry = make_entry(options)
+        assert await setup(hass, entry, FakeSource({"mko": [], "emb": [], "bio": []}))
+        assert entry.options == options
+        assert entry.version == 1
+        await unload(hass, entry)
+        await hass.config_entries.async_remove(entry.entry_id)
 
 
 async def test_no_match(hass: HomeAssistant) -> None:
@@ -138,116 +383,6 @@ async def test_cannot_connect_on_pick(hass: HomeAssistant) -> None:
         )
     assert result["step_id"] == "pick"
     assert result["errors"] == {"base": "cannot_connect"}
-
-
-async def _accept_types(hass: HomeAssistant, result, overrides=None):
-    """Walk through all type steps with defaults; return the name step."""
-    overrides = overrides or {}
-    while result["step_id"] == "type":
-        key = result["description_placeholders"]["type"]
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], overrides.get(key, {})
-        )
-    return result
-
-
-async def test_invalid_color(hass: HomeAssistant) -> None:
-    result = await _to_types(hass)
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
-    assert result["step_id"] == "type"
-    assert result["description_placeholders"] == {"type": "Mixed waste"}
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"name": "Moji smeti", "color": "green"}
-    )
-    assert result["step_id"] == "type"
-    assert result["errors"] == {"color": "invalid_color"}
-    # The other input stays in the form.
-    values = {str(k): k.description["suggested_value"] for k in result["data_schema"].schema
-              if k.description}
-    assert values["name"] == "Moji smeti"
-    assert values["color"] == "green"
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"name": "Moji smeti", "color": "#112233"}
-    )
-    assert result["description_placeholders"] == {"type": "Packaging"}
-
-
-async def test_empty_type_name(hass: HomeAssistant) -> None:
-    result = await _to_types(hass)
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"name": "  "}
-    )
-    assert result["errors"] == {"name": "invalid_name"}
-
-
-async def test_no_type_selected(hass: HomeAssistant) -> None:
-    result = await _to_types(hass)
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"types": []}
-    )
-    assert result["step_id"] == "types"
-    assert result["errors"] == {"base": "no_types"}
-
-
-async def test_only_selected_types_are_stored(hass: HomeAssistant) -> None:
-    result = await _to_types(hass)
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"types": ["emb", "mko"]}
-    )
-    assert result["description_placeholders"] == {"type": "Mixed waste"}
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
-    assert result["description_placeholders"] == {"type": "Packaging"}
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"name": "Plastika"}
-    )
-    assert result["step_id"] == "name"
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
-    assert result["title"] == "Bin Day – LJUBLJANSKA CESTA 1 A"
-    types = result["result"].data[CONF_TYPES]
-    assert list(types) == ["mko", "emb"]
-    assert types["emb"]["name"] == "Plastika"
-
-
-async def test_unknown_type_defaults(hass: HomeAssistant) -> None:
-    fetched = {"mko": [], "steklo": [date(2026, 11, 20)]}
-    result = await _start(hass)
-    with patch(FETCH, return_value=fetched):
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {"address_id": ADDRESSES[0].id}
-        )
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
-    result = await _accept_types(hass, result)
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
-    unknown = result["result"].data[CONF_TYPES]["steklo"]
-    assert unknown["name"] == "steklo"
-    assert unknown["icon"] == "mdi:delete"
-    assert unknown["color"] == "#ffdd00"
-
-
-async def test_already_configured(hass: HomeAssistant) -> None:
-    result = await _to_types(hass)
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
-    result = await _accept_types(hass, result)
-    await hass.config_entries.flow.async_configure(result["flow_id"], {})
-
-    result = await _start(hass)
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"address_id": ADDRESSES[0].id}
-    )
-    assert result["type"] is FlowResultType.ABORT
-    assert result["reason"] == "already_configured"
-
-
-async def test_slovenian_defaults(hass: HomeAssistant) -> None:
-    hass.config.language = "sl"
-    result = await _to_types(hass)
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
-    assert result["description_placeholders"] == {"type": "Mešani komunalni odpadki"}
-    defaults = {str(k): k.default() for k in result["data_schema"].schema}
-    assert defaults["name"] == "Mešani komunalni odpadki"
-    assert defaults["icon"] == "mdi:trash-can"
-    assert defaults["color"] == "#00a136"
 
 
 async def test_no_match_keeps_address(hass: HomeAssistant) -> None:
@@ -291,46 +426,6 @@ async def test_pick_list_is_capped_at_50(hass: HomeAssistant) -> None:
     assert [o["value"] for o in options] == [str(i) for i in range(50)]
 
 
-async def test_last_step_flags(hass: HomeAssistant) -> None:
-    """Steps that always lead to another form show Next, not Submit."""
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": SOURCE_USER}
-    )
-    assert result["step_id"] == "user"
-    assert result["last_step"] is False
-    with patch(SEARCH, return_value=ADDRESSES):
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {"address": "Ljubljanska cesta 1 A"}
-        )
-    assert result["step_id"] == "pick"
-    assert result["last_step"] is False
-    with patch(FETCH, return_value=FETCHED):
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {"address_id": ADDRESSES[0].id}
-        )
-    assert result["step_id"] == "types"
-    assert result["last_step"] is False
-    # The multi-select keeps the order of the source.
-    assert result["data_schema"].schema["types"].config["sort"] is False
-    # An error re-shows the form with the same flag.
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"types": []}
-    )
-    assert result["errors"] == {"base": "no_types"}
-    assert result["last_step"] is False
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
-    assert result["step_id"] == "type"
-    assert result["last_step"] is False
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"name": "x", "color": "green"}
-    )
-    assert result["errors"] == {"color": "invalid_color"}
-    assert result["last_step"] is False
-    result = await _accept_types(hass, result)
-    assert result["step_id"] == "name"
-    assert result.get("last_step") is not False
-
-
 async def test_last_step_flags_user_errors(hass: HomeAssistant) -> None:
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": SOURCE_USER}
@@ -340,3 +435,4 @@ async def test_last_step_flags_user_errors(hass: HomeAssistant) -> None:
     )
     assert result["errors"] == {"address": "too_short"}
     assert result["last_step"] is False
+

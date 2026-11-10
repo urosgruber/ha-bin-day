@@ -14,35 +14,23 @@
           "address_id": "Address"
         }
       },
-      "types": {
-        "title": "Waste types",
-        "description": "Choose the types to track. You set the name, icon and colour of each type next.",
-        "data": {
-          "types": "Waste types"
-        }
-      },
-      "type": {
-        "title": "{type}",
-        "description": "Name, icon and colour for {type}. Use a colour like #00a136.",
-        "data": {
-          "name": "Name",
-          "icon": "Icon",
-          "color": "Colour"
-        }
-      },
       "name": {
-        "title": "Name",
+        "title": "Waste types, name and phones",
+        "description": "Choose the waste types and the device name. Choose the phones that get reminders. Leave the phones empty to turn reminders off. You can change types, times and events later in the options.",
         "data": {
-          "name": "Name"
+          "types": "Waste types",
+          "name": "Device name",
+          "notify_targets": "Notify phones"
+        },
+        "data_description": {
+          "notify_targets": "Bin Day sends reminders to these phones. Leave this empty to turn reminders off."
         }
       }
     },
     "error": {
       "no_match": "Simbio does not know this address.",
       "cannot_connect": "Cannot reach Simbio. Try again later.",
-      "invalid_color": "Use a colour like #00a136.",
       "no_types": "Choose at least one waste type.",
-      "invalid_name": "Enter a name.",
       "too_short": "Enter at least 3 characters."
     },
     "abort": {

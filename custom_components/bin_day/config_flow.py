@@ -1,4 +1,4 @@
-"""Config flow for Bin Day: address, pick, types, name."""
+"""Config flow for Bin Day: address, pick, then one final step."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from homeassistant.config_entries import (
     OptionsFlow,
 )
 from homeassistant.const import STATE_OFF, STATE_ON
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
@@ -30,6 +30,7 @@ from homeassistant.helpers.selector import (
     TextSelector,
     TimeSelector,
 )
+from homeassistant.util import slugify
 
 from .const import (
     CONF_ADDRESS_ID,
@@ -134,6 +135,36 @@ def _hhmm(value: str) -> str:
 
 # Notify actions that are not a person's device.
 _NOT_TARGETS = {"send_message", "persistent_notification"}
+_PHONE_SYSTEMS = {"ios", "ipados", "android"}
+
+
+def _offered_targets(hass: HomeAssistant) -> list[str]:
+    """Return the names of the notify actions that a user can choose."""
+    services = hass.services.async_services_for_domain("notify")
+    return sorted(name for name in services if name not in _NOT_TARGETS)
+
+
+def notify_targets(hass: HomeAssistant) -> list[SelectOptionDict]:
+    """Return the notify actions as options of a select."""
+    return [SelectOptionDict(value=n, label=n) for n in _offered_targets(hass)]
+
+
+def phone_targets(hass: HomeAssistant) -> list[str]:
+    """Return the notify actions of the phones of the Companion app.
+
+    A phone counts when its system is iOS, iPadOS or Android and its notify
+    action exists now.
+    """
+    names: set[str] = set()
+    for entry in hass.config_entries.async_entries("mobile_app"):
+        system = str(entry.data.get("os_name", "")).lower()
+        device = entry.data.get("device_name")
+        if system not in _PHONE_SYSTEMS or not device:
+            continue
+        name = f"mobile_app_{slugify(device)}"
+        if hass.services.has_service("notify", name):
+            names.add(name)
+    return sorted(names)
 
 
 class BinDayConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -151,8 +182,6 @@ class BinDayConfigFlow(ConfigFlow, domain=DOMAIN):
         self._matches: dict[str, SimbioAddress] = {}
         self._address: SimbioAddress | None = None
         self._fetched: dict[str, bool] = {}  # type key -> has a date now
-        self._types: dict[str, dict[str, Any]] = {}
-        self._selected: list[str] = []
 
     @property
     def _sl(self) -> bool:
@@ -178,7 +207,13 @@ class BinDayConfigFlow(ConfigFlow, domain=DOMAIN):
                         errors["base"] = "no_match"
                     else:
                         self._matches = {m.id: m for m in matches[:MAX_MATCHES]}
-                        return await self.async_step_pick()
+                        if len(self._matches) > 1:
+                            return await self.async_step_pick()
+                        # One match: continue as if the user picked it.
+                        address = next(iter(self._matches.values()))
+                        if await self._async_choose(address):
+                            return await self.async_step_name()
+                        errors["base"] = "cannot_connect"
         return self.async_show_form(
             step_id="user",
             data_schema=self.add_suggested_values_to_schema(
@@ -188,6 +223,23 @@ class BinDayConfigFlow(ConfigFlow, domain=DOMAIN):
             last_step=False,
         )
 
+    async def _async_choose(self, address: SimbioAddress) -> bool:
+        """Take this address and fetch its types.
+
+        Abort the flow when the address is set up. Return False when Simbio
+        cannot be reached.
+        """
+        await self.async_set_unique_id(address.id)
+        self._abort_if_unique_id_configured()
+        client = SimbioClient(async_get_clientsession(self.hass))
+        try:
+            fetched = await client.async_fetch_address(address)
+        except SourceError:
+            return False
+        self._address = address
+        self._fetched = {key: bool(dates) for key, dates in fetched.items()}
+        return True
+
     async def async_step_pick(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -195,17 +247,9 @@ class BinDayConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             address = self._matches[user_input[CONF_ADDRESS_ID]]
-            await self.async_set_unique_id(address.id)
-            self._abort_if_unique_id_configured()
-            client = SimbioClient(async_get_clientsession(self.hass))
-            try:
-                fetched = await client.async_fetch_address(address)
-            except SourceError:
-                errors["base"] = "cannot_connect"
-            else:
-                self._address = address
-                self._fetched = {key: bool(dates) for key, dates in fetched.items()}
-                return await self.async_step_types()
+            if await self._async_choose(address):
+                return await self.async_step_name()
+            errors["base"] = "cannot_connect"
         options = [
             SelectOptionDict(value=m.id, label=f"{m.name}, {m.city}")
             for m in self._matches.values()
@@ -225,23 +269,51 @@ class BinDayConfigFlow(ConfigFlow, domain=DOMAIN):
             last_step=False,
         )
 
-    async def async_step_types(
+    async def async_step_name(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Choose which waste types to track."""
+        """Choose the types, the name and the phones, then create the entry.
+
+        Every selected type gets its default name, icon and colour. The user
+        can change them later in the options.
+        """
+        assert self._address is not None
         errors: dict[str, str] = {}
-        keys = ordered_keys({k: {} for k in self._fetched})
+        fetched_keys = list(self._fetched)
+        keys = ordered_keys({k: {} for k in fetched_keys})
         if user_input is not None:
-            self._selected = [k for k in keys if k in user_input["types"]]
-            if not self._selected:
+            selected = [k for k in keys if k in user_input["types"]]
+            if not selected:
                 errors["base"] = "no_types"
             else:
-                self._types = {}
-                return await self.async_step_type()
+                targets = list(user_input.get(CONF_NOTIFY_TARGETS, []))
+                types = {
+                    key: type_result(
+                        default_type_values(key, fetched_keys.index(key), self._sl)
+                    )
+                    for key in selected
+                }
+                # No phones chosen: reminders stay off, as the code default.
+                options: dict[str, Any] = {}
+                if targets:
+                    options = {
+                        CONF_REMINDERS_ENABLED: True,
+                        CONF_NOTIFY_TARGETS: targets,
+                    }
+                return self.async_create_entry(
+                    title=user_input["name"],
+                    data={
+                        CONF_ADDRESS_ID: self._address.id,
+                        CONF_ADDRESS_NAME: self._address.name,
+                        CONF_CITY: self._address.city,
+                        CONF_TYPES: types,
+                    },
+                    options=options,
+                )
 
         suffix = _NO_COLLECTION["sl" if self._sl else "en"]
         name = lambda k: default_type_name(k, self._sl)  # noqa: E731
-        options = [
+        type_options = [
             SelectOptionDict(
                 value=k,
                 label=name(k) if self._fetched[k] else f"{name(k)} {suffix}",
@@ -252,69 +324,30 @@ class BinDayConfigFlow(ConfigFlow, domain=DOMAIN):
             {
                 vol.Required("types", default=keys): SelectSelector(
                     SelectSelectorConfig(
-                        options=options,
+                        options=type_options,
                         multiple=True,
                         mode=SelectSelectorMode.LIST,
                         sort=False,
                     )
-                )
+                ),
+                vol.Required(
+                    "name", default=f"Bin Day – {self._address.name}"
+                ): str,
+                vol.Optional(
+                    CONF_NOTIFY_TARGETS, default=phone_targets(self.hass)
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=notify_targets(self.hass),
+                        multiple=True,
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                ),
             }
         )
         return self.async_show_form(
-            step_id="types",
-            data_schema=self.add_suggested_values_to_schema(schema, user_input),
-            errors=errors,
-            last_step=False,
-        )
-
-    async def async_step_type(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Set the name, icon and colour of the next selected type."""
-        keys = list(self._fetched)
-        key = next(k for k in self._selected if k not in self._types)
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            errors = validate_type(user_input)
-            if not errors:
-                self._types[key] = type_result(user_input)
-                if len(self._types) == len(self._selected):
-                    return await self.async_step_name()
-                return await self.async_step_type()
-        defaults = default_type_values(key, keys.index(key), self._sl)
-        schema = type_schema(defaults)
-        return self.async_show_form(
-            step_id="type",
-            data_schema=self.add_suggested_values_to_schema(schema, user_input),
-            description_placeholders={"type": defaults["name"]},
-            errors=errors,
-            last_step=False,
-        )
-
-    async def async_step_name(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Choose the device name and create the entry."""
-        assert self._address is not None
-        if user_input is not None:
-            return self.async_create_entry(
-                title=user_input["name"],
-                data={
-                    CONF_ADDRESS_ID: self._address.id,
-                    CONF_ADDRESS_NAME: self._address.name,
-                    CONF_CITY: self._address.city,
-                    CONF_TYPES: self._types,
-                },
-            )
-        return self.async_show_form(
             step_id="name",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        "name", default=f"Bin Day – {self._address.name}"
-                    ): str
-                }
-            ),
+            data_schema=self.add_suggested_values_to_schema(schema, user_input),
+            errors=errors,
         )
 
 
@@ -486,8 +519,7 @@ class BinDayOptionsFlow(OptionsFlow):
     ) -> ConfigFlowResult:
         """Set the reminders, their targets and times."""
         options = self.config_entry.options
-        services = self.hass.services.async_services_for_domain("notify")
-        offered = sorted(name for name in services if name not in _NOT_TARGETS)
+        offered = _offered_targets(self.hass)
         errors: dict[str, str] = {}
         if user_input is not None:
             enabled = bool(user_input[CONF_REMINDERS_ENABLED])
@@ -514,7 +546,9 @@ class BinDayOptionsFlow(OptionsFlow):
             else:
                 new.pop(CONF_INITIAL_SWITCH_STATES, None)
             return self.async_create_entry(data=new)
-        targets = [t for t in options.get(CONF_NOTIFY_TARGETS, []) if t in offered]
+        saved = options.get(CONF_NOTIFY_TARGETS) or []
+        # No saved target: offer the phones. The user can still clear them.
+        targets = [t for t in saved if t in offered] if saved else phone_targets(self.hass)
         schema = vol.Schema(
             {
                 vol.Required(
@@ -523,7 +557,7 @@ class BinDayOptionsFlow(OptionsFlow):
                 ): BooleanSelector(),
                 vol.Optional(CONF_NOTIFY_TARGETS, default=targets): SelectSelector(
                     SelectSelectorConfig(
-                        options=[SelectOptionDict(value=n, label=n) for n in offered],
+                        options=notify_targets(self.hass),
                         multiple=True,
                         mode=SelectSelectorMode.DROPDOWN,
                     )

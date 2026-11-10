@@ -726,3 +726,71 @@ async def test_options_reminders_disable_keeps_wanted_switch_states(
         assert defaults["day_before_on"] is True
         hass.config_entries.options.async_abort(result["flow_id"])
     await unload(hass, entry)
+
+
+def _fake_phones(hass: HomeAssistant) -> None:
+    """Fake one iOS phone and one laptop; only the phone is a target."""
+
+    async def _noop(call: ServiceCall) -> None:
+        return None
+
+    for os_name, name in (("iOS", "Anna Phone"), ("Linux", "Box")):
+        MockConfigEntry(
+            domain="mobile_app", data={"os_name": os_name, "device_name": name}
+        ).add_to_hass(hass)
+        hass.services.async_register(
+            "notify", f"mobile_app_{name.lower().replace(' ', '_')}", _noop
+        )
+
+
+def _target_default(result) -> list[str]:
+    schema = result["data_schema"].schema
+    key = next(k for k in schema if str(k) == CONF_NOTIFY_TARGETS)
+    return key.default()
+
+
+@pytest.mark.parametrize("saved", [None, []])
+async def test_options_reminders_prefill_phones_when_no_saved_targets(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, saved
+) -> None:
+    _fake_phones(hass)
+    options = {} if saved is None else {CONF_NOTIFY_TARGETS: saved}
+    entry = await _entry(hass, freezer, options)
+    result = await _menu(hass, entry, "reminders")
+    assert _target_default(result) == ["mobile_app_anna_phone"]
+    hass.config_entries.options.async_abort(result["flow_id"])
+    await unload(hass, entry)
+
+
+async def test_options_reminders_saved_targets_beat_phones(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    _fake_phones(hass)
+    entry = await _entry(hass, freezer, {CONF_NOTIFY_TARGETS: ["mobile_app_box"]})
+    result = await _menu(hass, entry, "reminders")
+    assert _target_default(result) == ["mobile_app_box"]
+    hass.config_entries.options.async_abort(result["flow_id"])
+    await unload(hass, entry)
+
+
+async def test_options_reminders_empty_submit_stays_empty(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    _fake_phones(hass)
+    entry = await _entry(hass, freezer)
+    result = await _menu(hass, entry, "reminders")
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_REMINDERS_ENABLED: True,
+            CONF_NOTIFY_TARGETS: [],
+            CONF_EVENING_TIME: "19:00:00",
+            CONF_MORNING_TIME: "07:30:00",
+            CONF_DAY_BEFORE_TIME: "08:00:00",
+        },
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert entry.options[CONF_REMINDERS_ENABLED] is True
+    assert entry.options[CONF_NOTIFY_TARGETS] == []
+    await unload(hass, entry)

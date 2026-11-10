@@ -14,35 +14,23 @@
           "address_id": "Naslov"
         }
       },
-      "types": {
-        "title": "Vrste odpadkov",
-        "description": "Izberi vrste odpadkov. Ime, ikono in barvo vsake vrste nastaviš v naslednjem koraku.",
-        "data": {
-          "types": "Vrste odpadkov"
-        }
-      },
-      "type": {
-        "title": "{type}",
-        "description": "Ime, ikona in barva za {type}. Uporabi barvo v obliki #00a136.",
-        "data": {
-          "name": "Ime",
-          "icon": "Ikona",
-          "color": "Barva"
-        }
-      },
       "name": {
-        "title": "Ime",
+        "title": "Vrste odpadkov, ime in telefoni",
+        "description": "Izberi vrste odpadkov in ime naprave. Izberi telefone, ki dobijo opomnike. Če telefonov ne izbereš, so opomniki izklopljeni. Vrste, čase in dogodke lahko pozneje spremeniš v nastavitvah.",
         "data": {
-          "name": "Ime"
+          "types": "Vrste odpadkov",
+          "name": "Ime naprave",
+          "notify_targets": "Telefoni za obvestila"
+        },
+        "data_description": {
+          "notify_targets": "Bin Day pošilja opomnike na te telefone. Če polje pustiš prazno, so opomniki izklopljeni."
         }
       }
     },
     "error": {
       "no_match": "Simbio tega naslova ne pozna.",
       "cannot_connect": "Simbio ni dosegljiv. Poskusi kasneje.",
-      "invalid_color": "Uporabi barvo v obliki #00a136.",
       "no_types": "Izberi vsaj eno vrsto odpadkov.",
-      "invalid_name": "Vnesi ime.",
       "too_short": "Vpiši vsaj 3 znake."
     },
     "abort": {
