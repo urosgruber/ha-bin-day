@@ -24,6 +24,7 @@ from custom_components.bin_day.const import (
     CONF_REMINDERS_ENABLED,
     CONF_TYPES,
 )
+from custom_components.bin_day.config_flow import hex_to_rgb, rgb_to_hex
 from custom_components.bin_day.coordinator import get_types
 
 from .test_config_flow import _add_phones
@@ -102,6 +103,9 @@ def _types_input(entry, edits: dict[str, dict] | None = None) -> dict:
         }
         if "interval" not in values and conf.get("interval") is not None:
             values["interval"] = conf["interval"]
+        # The colour picker sends RGB values.
+        if isinstance(values["color"], str) and values["color"].startswith("#"):
+            values["color"] = hex_to_rgb(values["color"])
         data[f"type_{index + 1}"] = values
     return data
 
@@ -116,17 +120,22 @@ async def test_options_types_change_color_and_interval(
         flow_id = result["flow_id"]
         edit = {"color": "#ffaa00", "estimate": False}
 
-        # Interval out of range -> error on the section.
+        # The interval field rejects a value outside 7-35 days.
+        with pytest.raises(InvalidData):
+            await hass.config_entries.options.async_configure(
+                flow_id, _types_input(entry, {"emb": {**edit, "interval": 40}})
+            )
+        # The colour picker rejects a value that is not RGB.
+        with pytest.raises(InvalidData):
+            await hass.config_entries.options.async_configure(
+                flow_id, _types_input(entry, {"emb": {**edit, "color": "red"}})
+            )
+        # A fractional interval -> error on the section.
         result = await hass.config_entries.options.async_configure(
-            flow_id, _types_input(entry, {"emb": {**edit, "interval": 40}})
+            flow_id, _types_input(entry, {"emb": {**edit, "interval": 14.5}})
         )
         assert result["type"] is FlowResultType.FORM
         assert result["errors"] == {"type_2": "invalid_interval"}
-        # Bad colour -> error on the section.
-        result = await hass.config_entries.options.async_configure(
-            flow_id, _types_input(entry, {"emb": {**edit, "color": "red", "interval": 21}})
-        )
-        assert result["errors"] == {"type_2": "invalid_color"}
         # Empty name -> error on the section.
         result = await hass.config_entries.options.async_configure(
             flow_id, _types_input(entry, {"emb": {**edit, "name": " "}})
@@ -488,11 +497,11 @@ async def test_options_types_error_opens_only_the_bad_section_and_keeps_input(
     entry = await _entry(hass, freezer)
     result = await _menu(hass, entry, "types")
     data = _types_input(
-        entry, {"emb": {"color": "red", "icon": "mdi:bottle-wine", "interval": 21}}
+        entry, {"emb": {"name": " ", "icon": "mdi:bottle-wine", "interval": 21}}
     )
     result = await hass.config_entries.options.async_configure(result["flow_id"], data)
     assert result["type"] is FlowResultType.FORM
-    assert result["errors"] == {"type_2": "invalid_color"}
+    assert result["errors"] == {"type_2": "invalid_name"}
     assert _collapsed(result) == {"type_1": True, "type_2": False, "type_3": True}
     # The input of the user stays as the suggested values.
     for slot in ("type_1", "type_2", "type_3"):
@@ -563,7 +572,7 @@ async def test_options_edit_two_types_in_one_submit_saves_both(
     with patch("custom_components.bin_day._create_source", return_value=FakeSource({})):
         result = await _menu(hass, entry, "types")
         fields = _section_fields(result, "type_2")
-        assert fields["color"].default() == "#aa0000"
+        assert fields["color"].default() == [170, 0, 0]
         assert _suggested(result, "type_2") == {"interval": 21}
         hass.config_entries.options.async_abort(result["flow_id"])
     await unload(hass, entry)
@@ -588,7 +597,7 @@ async def test_options_abort_saves_nothing(
     flow_id = result["flow_id"]
     # A submit with an error does not save, and closing the dialog saves nothing.
     result = await hass.config_entries.options.async_configure(
-        flow_id, _types_input(entry, {"emb": {"color": "bad"}})
+        flow_id, _types_input(entry, {"emb": {"name": " "}})
     )
     assert result["type"] is FlowResultType.FORM
     hass.config_entries.options.async_abort(flow_id)
@@ -882,4 +891,29 @@ async def test_options_reminders_empty_submit_stays_empty(
     await hass.async_block_till_done()
     assert entry.options[CONF_REMINDERS_ENABLED] is True
     assert entry.options[CONF_NOTIFY_TARGETS] == []
+    await unload(hass, entry)
+
+
+def test_colour_conversion() -> None:
+    assert hex_to_rgb("#00a136") == [0, 161, 54]
+    assert hex_to_rgb("red") == [128, 128, 128]
+    assert rgb_to_hex([0, 161, 54]) == "#00a136"
+    assert rgb_to_hex("#00a136") == "#00a136"
+
+
+async def test_options_types_colour_picker_round_trip(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    entry = await _entry(hass, freezer)
+    with patch("custom_components.bin_day._create_source", return_value=FakeSource({})):
+        result = await _menu(hass, entry, "types")
+        assert _section_fields(result, "type_1")["color"].default() == [0, 161, 54]
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], _types_input(entry, {"emb": {"color": [255, 170, 0]}})
+        )
+        assert result["type"] is FlowResultType.CREATE_ENTRY
+        await hass.async_block_till_done()
+    # The picker value is stored as #rrggbb.
+    assert entry.options[CONF_TYPES]["emb"]["color"] == "#ffaa00"
+    assert CONF_TYPES not in entry.options or "mko" not in entry.options[CONF_TYPES]
     await unload(hass, entry)

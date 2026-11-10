@@ -76,7 +76,7 @@
       },
       "types": {
         "title": "Vrste odpadkov",
-        "description": "Odpri vrsto, ki ji želiš spremeniti ime, ikono, barvo ali oceno. Uporabi barvo v obliki #00a136. Interval mora biti od 7 do 35 dni. Pošlji shrani vse vrste.",
+        "description": "Odpri vrsto, ki jo želiš spremeniti. Pošlji shrani vse vrste.",
         "sections": {
           "type_1": {
             "name": "{type_1}",
@@ -85,7 +85,11 @@
               "icon": "Ikona",
               "color": "Barva",
               "estimate": "Oceni datume",
-              "interval": "Interval v dneh (prazno = nauči se)"
+              "interval": "Interval"
+            },
+            "data_description": {
+              "estimate": "Ko Simbio nima datuma, Bin Day pokaže ocenjen datum, označen z *.",
+              "interval": "Dnevi med dvema odvozoma. Pusti prazno, da se interval nauči iz preteklih odvozov."
             }
           },
           "type_2": {
@@ -95,7 +99,11 @@
               "icon": "Ikona",
               "color": "Barva",
               "estimate": "Oceni datume",
-              "interval": "Interval v dneh (prazno = nauči se)"
+              "interval": "Interval"
+            },
+            "data_description": {
+              "estimate": "Ko Simbio nima datuma, Bin Day pokaže ocenjen datum, označen z *.",
+              "interval": "Dnevi med dvema odvozoma. Pusti prazno, da se interval nauči iz preteklih odvozov."
             }
           },
           "type_3": {
@@ -105,7 +113,11 @@
               "icon": "Ikona",
               "color": "Barva",
               "estimate": "Oceni datume",
-              "interval": "Interval v dneh (prazno = nauči se)"
+              "interval": "Interval"
+            },
+            "data_description": {
+              "estimate": "Ko Simbio nima datuma, Bin Day pokaže ocenjen datum, označen z *.",
+              "interval": "Dnevi med dvema odvozoma. Pusti prazno, da se interval nauči iz preteklih odvozov."
             }
           },
           "type_4": {
@@ -115,7 +127,11 @@
               "icon": "Ikona",
               "color": "Barva",
               "estimate": "Oceni datume",
-              "interval": "Interval v dneh (prazno = nauči se)"
+              "interval": "Interval"
+            },
+            "data_description": {
+              "estimate": "Ko Simbio nima datuma, Bin Day pokaže ocenjen datum, označen z *.",
+              "interval": "Dnevi med dvema odvozoma. Pusti prazno, da se interval nauči iz preteklih odvozov."
             }
           },
           "type_5": {
@@ -125,7 +141,11 @@
               "icon": "Ikona",
               "color": "Barva",
               "estimate": "Oceni datume",
-              "interval": "Interval v dneh (prazno = nauči se)"
+              "interval": "Interval"
+            },
+            "data_description": {
+              "estimate": "Ko Simbio nima datuma, Bin Day pokaže ocenjen datum, označen z *.",
+              "interval": "Dnevi med dvema odvozoma. Pusti prazno, da se interval nauči iz preteklih odvozov."
             }
           },
           "type_6": {
@@ -135,7 +155,11 @@
               "icon": "Ikona",
               "color": "Barva",
               "estimate": "Oceni datume",
-              "interval": "Interval v dneh (prazno = nauči se)"
+              "interval": "Interval"
+            },
+            "data_description": {
+              "estimate": "Ko Simbio nima datuma, Bin Day pokaže ocenjen datum, označen z *.",
+              "interval": "Dnevi med dvema odvozoma. Pusti prazno, da se interval nauči iz preteklih odvozov."
             }
           },
           "type_7": {
@@ -145,7 +169,11 @@
               "icon": "Ikona",
               "color": "Barva",
               "estimate": "Oceni datume",
-              "interval": "Interval v dneh (prazno = nauči se)"
+              "interval": "Interval"
+            },
+            "data_description": {
+              "estimate": "Ko Simbio nima datuma, Bin Day pokaže ocenjen datum, označen z *.",
+              "interval": "Dnevi med dvema odvozoma. Pusti prazno, da se interval nauči iz preteklih odvozov."
             }
           },
           "type_8": {
@@ -155,7 +183,11 @@
               "icon": "Ikona",
               "color": "Barva",
               "estimate": "Oceni datume",
-              "interval": "Interval v dneh (prazno = nauči se)"
+              "interval": "Interval"
+            },
+            "data_description": {
+              "estimate": "Ko Simbio nima datuma, Bin Day pokaže ocenjen datum, označen z *.",
+              "interval": "Dnevi med dvema odvozoma. Pusti prazno, da se interval nauči iz preteklih odvozov."
             }
           },
           "type_9": {
@@ -165,7 +197,11 @@
               "icon": "Ikona",
               "color": "Barva",
               "estimate": "Oceni datume",
-              "interval": "Interval v dneh (prazno = nauči se)"
+              "interval": "Interval"
+            },
+            "data_description": {
+              "estimate": "Ko Simbio nima datuma, Bin Day pokaže ocenjen datum, označen z *.",
+              "interval": "Dnevi med dvema odvozoma. Pusti prazno, da se interval nauči iz preteklih odvozov."
             }
           },
           "type_10": {
@@ -175,7 +211,11 @@
               "icon": "Ikona",
               "color": "Barva",
               "estimate": "Oceni datume",
-              "interval": "Interval v dneh (prazno = nauči se)"
+              "interval": "Interval"
+            },
+            "data_description": {
+              "estimate": "Ko Simbio nima datuma, Bin Day pokaže ocenjen datum, označen z *.",
+              "interval": "Dnevi med dvema odvozoma. Pusti prazno, da se interval nauči iz preteklih odvozov."
             }
           }
         }
@@ -235,6 +275,11 @@
         "auto": "Samodejno (jezik Home Assistanta)",
         "en": "Angleščina",
         "sl": "Slovenščina"
+      }
+    },
+    "interval": {
+      "unit_of_measurement": {
+        "days": "dni"
       }
     }
   }

@@ -87,7 +87,7 @@ badges:
 
 Open the integration and choose **Configure**.
 
-- **Waste types:** one form with a section for each type. Open a section to change the name, icon, colour, estimate on or off, and interval. **Submit** saves all types. If you close the dialog instead, nothing is saved.
+- **Waste types:** one form with a section for each type. Open a section to change the name, icon, colour (with a colour picker), estimate on or off, and interval (7 to 35 days, or empty to learn it). **Submit** saves all types. If you close the dialog instead, nothing is saved.
 - **Reminders:** enable them and choose the notify targets. Each Companion app device shows its device name. When no target is saved, the form offers the phones of the people in your home (see [Set up](#set-up)). You can clear them. If you choose no target, Bin Day sends no notification and fires only the events (see [Events](#events)). Each reminder has its own section with an on/off setting and a time. The on/off setting controls the same reminder switch as the switch on the device. You choose the time in 15-minute steps.
   - Evening: 19:00, on.
   - Morning of collection: 07:30, on.

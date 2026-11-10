@@ -20,6 +20,7 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     BooleanSelector,
+    ColorRGBSelector,
     IconSelector,
     NumberSelector,
     NumberSelectorConfig,
@@ -28,7 +29,6 @@ from homeassistant.helpers.selector import (
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
-    TextSelector,
     TimeSelector,
 )
 from homeassistant.util import slugify
@@ -67,6 +67,7 @@ from .simbio import SimbioAddress, SimbioClient
 from .source import SourceError
 
 _COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+_FALLBACK_RGB = (128, 128, 128)
 _UNKNOWN_ICON = "mdi:delete"
 # The address search needs this many characters; the pick list shows at most
 # this many matches.
@@ -108,13 +109,32 @@ def default_type_values(key: str, index: int, sl: bool) -> dict[str, str]:
     }
 
 
+def hex_to_rgb(color: str) -> list[int]:
+    """Return the RGB values of a colour like #00a136; grey when invalid."""
+    if not _COLOR_RE.match(color):
+        return list(_FALLBACK_RGB)
+    return [int(color[i : i + 2], 16) for i in (1, 3, 5)]
+
+
+def rgb_to_hex(color: str | list[int]) -> str:
+    """Return a colour picker value as #rrggbb. A string passes unchanged."""
+    if isinstance(color, str):
+        return color
+    return "#" + "".join(f"{int(c):02x}" for c in color)
+
+
 def type_schema(defaults: dict[str, str]) -> vol.Schema:
-    """Return the schema of the name, icon and colour of one type."""
+    """Return the schema of the name, icon and colour of one type.
+
+    The colour is a colour picker. Bin Day stores it as #rrggbb.
+    """
     return vol.Schema(
         {
             vol.Required("name", default=defaults["name"]): str,
             vol.Required("icon", default=defaults["icon"]): IconSelector(),
-            vol.Required("color", default=defaults["color"]): TextSelector(),
+            vol.Required(
+                "color", default=hex_to_rgb(defaults["color"])
+            ): ColorRGBSelector(),
         }
     )
 
@@ -124,7 +144,7 @@ def validate_type(user_input: dict[str, Any]) -> dict[str, str]:
     errors: dict[str, str] = {}
     if not user_input["name"].strip():
         errors["name"] = "invalid_name"
-    if not _COLOR_RE.match(user_input["color"]):
+    if not _COLOR_RE.match(rgb_to_hex(user_input["color"])):
         errors["color"] = "invalid_color"
     return errors
 
@@ -134,7 +154,7 @@ def type_result(user_input: dict[str, Any]) -> dict[str, Any]:
     return {
         "name": user_input["name"].strip(),
         "icon": user_input["icon"],
-        "color": user_input["color"],
+        "color": rgb_to_hex(user_input["color"]).lower(),
         "estimate": True,
         "interval": None,
     }
@@ -505,7 +525,14 @@ class BinDayOptionsFlow(OptionsFlow):
                             "estimate", default=current.get("estimate", True)
                         ): BooleanSelector(),
                         vol.Optional("interval"): NumberSelector(
-                            NumberSelectorConfig(step=1, mode=NumberSelectorMode.BOX)
+                            NumberSelectorConfig(
+                                min=INTERVAL_MIN,
+                                max=INTERVAL_MAX,
+                                step=1,
+                                mode=NumberSelectorMode.BOX,
+                                unit_of_measurement="days",
+                                translation_key="interval",
+                            )
                         ),
                     }
                 ),
