@@ -106,11 +106,15 @@
       },
       "reminders": {
         "title": "Reminders",
+        "description": "You can also turn each reminder on or off with its switch on the device.",
         "data": {
           "reminders_enabled": "Send reminders",
           "notify_targets": "Send to",
+          "evening_on": "Evening before – on",
           "evening_time": "Evening before",
+          "morning_on": "Morning of the day – on",
           "morning_time": "Morning of the day",
+          "day_before_on": "Morning the day before – on",
           "day_before_time": "Morning the day before"
         }
       },

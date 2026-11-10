@@ -12,7 +12,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DOMAIN
+from .const import CONF_INITIAL_SWITCH_STATES, DOMAIN
 from .coordinator import BinDayCoordinator
 from .reminders import REMINDERS, ReminderScheduler
 
@@ -27,8 +27,9 @@ async def async_setup_entry(
     scheduler = coordinator.reminders
     if scheduler is None:
         return
+    wanted = entry.options.get(CONF_INITIAL_SWITCH_STATES) or {}
     async_add_entities(
-        BinDayReminderSwitch(entry, scheduler, key, default)
+        BinDayReminderSwitch(entry, scheduler, key, bool(wanted.get(key, default)))
         for key, (_option, _time, default) in REMINDERS.items()
     )
 
@@ -56,7 +57,7 @@ class BinDayReminderSwitch(RestoreEntity, SwitchEntity):
         )
 
     async def async_added_to_hass(self) -> None:
-        """Restore the last state, else keep the default."""
+        """Restore the last state, else keep the initial state."""
         await super().async_added_to_hass()
         last = await self.async_get_last_state()
         if last is not None and last.state in (STATE_ON, STATE_OFF):

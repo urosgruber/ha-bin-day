@@ -20,6 +20,9 @@ CONF_DAY_BEFORE_TIME = "day_before_time"
 CONF_MISSING_WARNING = "missing_warning"
 CONF_COLLECTION_TIME = "collection_time"
 CONF_LANGUAGE = "language"
+# Wanted start states of the reminder switches: reminder key -> on or off.
+# Used only when a switch has no restored state.
+CONF_INITIAL_SWITCH_STATES = "initial_switch_states"
 
 # Values of the language option.
 LANGUAGE_AUTO = "auto"
@@ -70,5 +73,5 @@ def default_color(index: int) -> str:
 # Simbio web service.
 SIMBIO_URL = "https://www.simbio.si/sl/moj-dan-odvoza-odpadkov"
 SIMBIO_ACTION = "simbioOdvozOdpadkov"
-USER_AGENT = "BinDay/0.1.2 (+https://github.com/urosgruber/ha-bin-day)"
+USER_AGENT = "BinDay/0.1.3 (+https://github.com/urosgruber/ha-bin-day)"
 REQUEST_TIMEOUT = 20

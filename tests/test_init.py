@@ -38,7 +38,7 @@ async def test_manifest_and_setup(hass: HomeAssistant) -> None:
     """The manifest is correct and an entry sets up and unloads."""
     manifest = json.loads(MANIFEST.read_text())
     assert manifest["domain"] == "bin_day"
-    assert manifest["version"] == "0.1.2"
+    assert manifest["version"] == "0.1.3"
     assert manifest["config_flow"] is True
     assert "http" in manifest["dependencies"]
     assert "frontend" in manifest["dependencies"]

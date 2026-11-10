@@ -13,7 +13,9 @@ from homeassistant.config_entries import (
     ConfigFlowResult,
     OptionsFlow,
 )
+from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.core import callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     BooleanSelector,
@@ -36,6 +38,7 @@ from .const import (
     CONF_COLLECTION_TIME,
     CONF_DAY_BEFORE_TIME,
     CONF_EVENING_TIME,
+    CONF_INITIAL_SWITCH_STATES,
     CONF_LANGUAGE,
     CONF_MISSING_WARNING,
     CONF_MORNING_TIME,
@@ -55,7 +58,9 @@ from .coordinator import (
     DEFAULT_EVENING_TIME,
     DEFAULT_MORNING_TIME,
     get_types,
+    ordered_keys,
 )
+from .reminders import DAY_BEFORE, EVENING, MORNING, REMINDERS
 from .simbio import SimbioAddress, SimbioClient
 from .source import SourceError
 
@@ -65,6 +70,10 @@ _UNKNOWN_ICON = "mdi:delete"
 # this many matches.
 MIN_SEARCH_LENGTH = 3
 MAX_MATCHES = 50
+_ON = {key: f"{key}_on" for key in REMINDERS}
+# The last choice of the type picker in the options.
+_DONE = "done"
+_DONE_LABEL = {"en": "Save and close", "sl": "Shrani in zapri"}
 _NO_COLLECTION = {"en": "(no collection now)", "sl": "(trenutno ni odvoza)"}
 
 
@@ -221,7 +230,7 @@ class BinDayConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Choose which waste types to track."""
         errors: dict[str, str] = {}
-        keys = list(self._fetched)
+        keys = ordered_keys({k: {} for k in self._fetched})
         if user_input is not None:
             self._selected = [k for k in keys if k in user_input["types"]]
             if not self._selected:
@@ -312,11 +321,32 @@ class BinDayConfigFlow(ConfigFlow, domain=DOMAIN):
 class BinDayOptionsFlow(OptionsFlow):
     """Edit the waste types, the reminders and the general settings.
 
-    Each sub-step saves at once and ends the flow. The entry reloads.
+    The reminders and general steps save at once and end the flow. The types
+    steps collect changes on the flow and save them when the user chooses
+    "done". Closing the dialog saves nothing. The entry reloads after a save.
     """
 
     def __init__(self) -> None:
         self._key: str | None = None
+        # Type overrides edited in this visit. None until the first edit.
+        self._pending: dict[str, dict[str, Any]] | None = None
+
+    def _pending_types(self) -> dict[str, dict[str, Any]]:
+        """Return the type overrides, with the edits of this visit."""
+        if self._pending is None:
+            self._pending = {
+                key: dict(conf)
+                for key, conf in (self.config_entry.options.get(CONF_TYPES) or {}).items()
+            }
+        return self._pending
+
+    def _current_types(self) -> dict[str, dict[str, Any]]:
+        """Return every type with the edits of this visit applied."""
+        pending = self._pending_types()
+        return {
+            key: {**conf, **(pending.get(key) or {})}
+            for key, conf in (self.config_entry.data.get(CONF_TYPES) or {}).items()
+        }
 
     @property
     def _sl(self) -> bool:
@@ -339,19 +369,25 @@ class BinDayOptionsFlow(OptionsFlow):
     async def async_step_types(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Choose which waste type to edit."""
-        types = get_types(self.config_entry)
+        """Choose which waste type to edit, or save and close."""
+        types = self._current_types()
         if user_input is not None:
+            if user_input["type"] == _DONE:
+                return self.async_create_entry(
+                    data={**self.config_entry.options, CONF_TYPES: self._pending_types()}
+                )
             self._key = user_input["type"]
             return await self.async_step_type()
-        options = [
-            SelectOptionDict(value=key, label=conf["name"]) for key, conf in types.items()
-        ]
+        keys = ordered_keys(types)
+        options = [SelectOptionDict(value=key, label=types[key]["name"]) for key in keys]
+        options.append(
+            SelectOptionDict(value=_DONE, label=_DONE_LABEL["sl" if self._sl else "en"])
+        )
         return self.async_show_form(
             step_id="types",
             data_schema=vol.Schema(
                 {
-                    vol.Required("type", default=next(iter(types))): SelectSelector(
+                    vol.Required("type", default=keys[0]): SelectSelector(
                         SelectSelectorConfig(
                             options=options,
                             mode=SelectSelectorMode.LIST,
@@ -368,7 +404,7 @@ class BinDayOptionsFlow(OptionsFlow):
     ) -> ConfigFlowResult:
         """Edit the name, icon, colour, estimate and interval of one type."""
         assert self._key is not None
-        current = get_types(self.config_entry)[self._key]
+        current = self._current_types()[self._key]
         errors: dict[str, str] = {}
         interval: int | None = None
         if user_input is not None:
@@ -382,9 +418,8 @@ class BinDayOptionsFlow(OptionsFlow):
                 result = type_result(user_input)
                 result["estimate"] = bool(user_input["estimate"])
                 result["interval"] = interval
-                saved = dict(self.config_entry.options.get(CONF_TYPES) or {})
-                saved[self._key] = result
-                return self._save(**{CONF_TYPES: saved})
+                self._pending_types()[self._key] = result
+                return await self.async_step_types()
         schema = type_schema(
             {k: current[k] for k in ("name", "icon", "color")}
         ).extend(
@@ -403,9 +438,48 @@ class BinDayOptionsFlow(OptionsFlow):
             data_schema=self.add_suggested_values_to_schema(schema, suggested),
             description_placeholders={"type": current["name"]},
             errors=errors,
+            last_step=False,
         )
 
     # ----- reminders -----
+
+    def _switch_entity_id(self, key: str) -> str | None:
+        """Return the entity id of a reminder switch, or None when it is missing."""
+        return er.async_get(self.hass).async_get_entity_id(
+            "switch", DOMAIN, f"{self.config_entry.entry_id}_reminder_{key}"
+        )
+
+    def _switch_is_on(self, key: str) -> bool:
+        """Return the state of a reminder switch, or its default when missing."""
+        entity_id = self._switch_entity_id(key)
+        state = self.hass.states.get(entity_id) if entity_id else None
+        if state is not None and state.state in (STATE_ON, STATE_OFF):
+            return state.state == STATE_ON
+        wanted = self.config_entry.options.get(CONF_INITIAL_SWITCH_STATES) or {}
+        return bool(wanted.get(key, REMINDERS[key][2]))
+
+    async def _apply_switches(self, user_input: dict[str, Any]) -> dict[str, bool]:
+        """Set the existing reminder switches to the wanted states.
+
+        Return the wanted states of the switches that do not exist yet.
+        """
+        missing: dict[str, bool] = {}
+        for key in REMINDERS:
+            wanted = bool(user_input[_ON[key]])
+            entity_id = self._switch_entity_id(key)
+            if entity_id is None:
+                missing[key] = wanted
+                continue
+            state = self.hass.states.get(entity_id)
+            if state is not None and state.state == (STATE_ON if wanted else STATE_OFF):
+                continue
+            await self.hass.services.async_call(
+                "switch",
+                "turn_on" if wanted else "turn_off",
+                {"entity_id": entity_id},
+                blocking=True,
+            )
+        return missing
 
     async def async_step_reminders(
         self, user_input: dict[str, Any] | None = None
@@ -421,16 +495,22 @@ class BinDayOptionsFlow(OptionsFlow):
             if enabled and not chosen:
                 errors[CONF_NOTIFY_TARGETS] = "no_targets"
         if user_input is not None and not errors:
-            # Saved targets that are no longer offered are dropped here.
-            return self._save(
-                **{
-                    CONF_REMINDERS_ENABLED: enabled,
-                    CONF_NOTIFY_TARGETS: chosen,
-                    CONF_EVENING_TIME: _hhmm(user_input[CONF_EVENING_TIME]),
-                    CONF_MORNING_TIME: _hhmm(user_input[CONF_MORNING_TIME]),
-                    CONF_DAY_BEFORE_TIME: _hhmm(user_input[CONF_DAY_BEFORE_TIME]),
-                }
-            )
+            initial = await self._apply_switches(user_input)
+            changes: dict[str, Any] = {
+                CONF_REMINDERS_ENABLED: enabled,
+                CONF_NOTIFY_TARGETS: chosen,
+                CONF_EVENING_TIME: _hhmm(user_input[CONF_EVENING_TIME]),
+                CONF_MORNING_TIME: _hhmm(user_input[CONF_MORNING_TIME]),
+                CONF_DAY_BEFORE_TIME: _hhmm(user_input[CONF_DAY_BEFORE_TIME]),
+            }
+            new = {**options, **changes}
+            # Wanted states of switches that do not exist yet. Saved targets
+            # that are no longer offered are dropped above.
+            if initial:
+                new[CONF_INITIAL_SWITCH_STATES] = initial
+            else:
+                new.pop(CONF_INITIAL_SWITCH_STATES, None)
+            return self.async_create_entry(data=new)
         targets = [t for t in options.get(CONF_NOTIFY_TARGETS, []) if t in offered]
         schema = vol.Schema(
             {
@@ -446,13 +526,22 @@ class BinDayOptionsFlow(OptionsFlow):
                     )
                 ),
                 vol.Required(
+                    _ON[EVENING], default=self._switch_is_on(EVENING)
+                ): BooleanSelector(),
+                vol.Required(
                     CONF_EVENING_TIME,
                     default=options.get(CONF_EVENING_TIME, DEFAULT_EVENING_TIME),
                 ): TimeSelector(),
                 vol.Required(
+                    _ON[MORNING], default=self._switch_is_on(MORNING)
+                ): BooleanSelector(),
+                vol.Required(
                     CONF_MORNING_TIME,
                     default=options.get(CONF_MORNING_TIME, DEFAULT_MORNING_TIME),
                 ): TimeSelector(),
+                vol.Required(
+                    _ON[DAY_BEFORE], default=self._switch_is_on(DAY_BEFORE)
+                ): BooleanSelector(),
                 vol.Required(
                     CONF_DAY_BEFORE_TIME,
                     default=options.get(CONF_DAY_BEFORE_TIME, DEFAULT_DAY_BEFORE_TIME),

@@ -82,8 +82,8 @@ badges:
 
 Open the integration and choose **Configure**.
 
-- **Each type:** name, icon, colour, estimate on or off, and interval.
-- **Reminders:** enable them and choose the notify targets. Each reminder has its own switch.
+- **Each type:** name, icon, colour, estimate on or off, and interval. You can edit several types in one visit. Choose **Save and close** to save them all. If you close the dialog instead, nothing is saved.
+- **Reminders:** enable them and choose the notify targets. Each reminder has an on/off setting in this form, next to its time. It controls the same reminder switch as the switch on the device.
   - Evening: 19:00, on.
   - Morning of collection: 07:30, on.
   - Morning before collection: 08:00, off.

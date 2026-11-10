@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 import logging
@@ -31,6 +31,7 @@ from .const import (
     PRE_REMINDER_FETCH,
     RETRY_DELAY,
     RETRY_MAX,
+    TYPE_DEFAULTS,
 )
 from .schedule import Resolved, TypeHistory, done_at, learn, resolve
 from .source import AddressNotFound, Source, SourceError
@@ -70,6 +71,26 @@ def get_types(entry: ConfigEntry) -> dict[str, dict[str, Any]]:
     for key, conf in (entry.data.get(CONF_TYPES) or {}).items():
         types[key] = {**conf, **(overrides.get(key) or {})}
     return types
+
+
+def ordered_keys(types: Mapping[str, Mapping[str, Any]]) -> list[str]:
+    """Return the type keys in the order to show them to the user.
+
+    A type with an `order` number goes by it. Else a known type goes by its
+    place in the Simbio defaults. Other types follow in their dict order.
+    """
+    known = list(TYPE_DEFAULTS)
+
+    def rank(item: tuple[int, tuple[str, Mapping[str, Any]]]) -> tuple[float, int]:
+        position, (key, conf) = item
+        order = conf.get("order")
+        if isinstance(order, (int, float)) and not isinstance(order, bool):
+            return (order, position)
+        if key in known:
+            return (known.index(key), position)
+        return (len(known) + position, position)
+
+    return [key for _pos, (key, _conf) in sorted(enumerate(types.items()), key=rank)]
 
 
 def _parse_time(value: Any) -> time | None:

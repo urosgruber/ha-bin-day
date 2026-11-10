@@ -106,11 +106,15 @@
       },
       "reminders": {
         "title": "Opomniki",
+        "description": "Vsak opomnik lahko vklopiš ali izklopiš tudi s stikalom na napravi.",
         "data": {
           "reminders_enabled": "Pošiljaj opomnike",
           "notify_targets": "Pošlji na",
+          "evening_on": "Večer prej – vklopljeno",
           "evening_time": "Večer prej",
+          "morning_on": "Zjutraj na dan odvoza – vklopljeno",
           "morning_time": "Zjutraj na dan odvoza",
+          "day_before_on": "Zjutraj dan prej – vklopljeno",
           "day_before_time": "Zjutraj dan prej"
         }
       },
