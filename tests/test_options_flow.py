@@ -192,15 +192,10 @@ async def test_options_reminders(hass: HomeAssistant, freezer: FrozenDateTimeFac
     await unload(hass, entry)
 
 
-async def test_options_reminders_enabled_needs_a_target(
+async def test_options_reminders_enabled_without_targets_means_events_only(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
-    """Reminders on with no target shows an error and keeps the input."""
-
-    async def _noop(call: ServiceCall) -> None:
-        return None
-
-    hass.services.async_register("notify", "mobile_app_one", _noop)
+    """Reminders on with no target is valid: Bin Day fires only the events."""
     entry = await _entry(hass, freezer)
     result = await _menu(hass, entry, "reminders")
     result = await hass.config_entries.options.async_configure(
@@ -213,20 +208,11 @@ async def test_options_reminders_enabled_needs_a_target(
             CONF_DAY_BEFORE_TIME: "08:30:00",
         },
     )
-    assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "reminders"
-    assert result["errors"] == {CONF_NOTIFY_TARGETS: "no_targets"}
-    suggested = {
-        str(k): k.description["suggested_value"]
-        for k in result["data_schema"].schema
-        if k.description and "suggested_value" in k.description
-    }
-    assert suggested[CONF_REMINDERS_ENABLED] is True
-    assert suggested[CONF_EVENING_TIME] == "18:45:00"
-    assert CONF_REMINDERS_ENABLED not in entry.options
-    hass.config_entries.options.async_abort(result["flow_id"])
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert entry.options[CONF_REMINDERS_ENABLED] is True
+    assert entry.options[CONF_NOTIFY_TARGETS] == []
     await unload(hass, entry)
-
 
 async def test_options_reminders_defaults(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory
@@ -679,19 +665,6 @@ async def test_options_reminders_first_enable_stores_initial_states(
     assert hass.states.get(switch_id(hass, entry, "evening")).state == "off"
     assert hass.states.get(switch_id(hass, entry, "morning")).state == "on"
     assert hass.states.get(switch_id(hass, entry, "day_before")).state == "on"
-    await unload(hass, entry)
-
-
-async def test_options_reminders_no_targets_still_an_error(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory
-) -> None:
-    entry = await _entry(hass, freezer)
-    result = await _menu(hass, entry, "reminders")
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], _reminder_input(**{CONF_NOTIFY_TARGETS: []})
-    )
-    assert result["errors"] == {CONF_NOTIFY_TARGETS: "no_targets"}
-    hass.config_entries.options.async_abort(result["flow_id"])
     await unload(hass, entry)
 
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 import logging
-from typing import Literal
+from typing import Any, Literal
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -20,6 +20,8 @@ from .const import (
     CONF_MISSING_WARNING,
     CONF_MORNING_TIME,
     CONF_NOTIFY_TARGETS,
+    EVENT_DATA_MISSING,
+    EVENT_REMINDER,
 )
 from .coordinator import (
     DEFAULT_DAY_BEFORE_TIME,
@@ -119,28 +121,46 @@ class ReminderScheduler:
             kind, day = "today", today
         else:
             kind, day = "tomorrow", today + timedelta(days=1)
-        names = self._due_names(day)
-        if not names:
+        due = self._due(day)
+        if not due:
             return
+        names = [item["name"] + ("*" if item["estimate"] else "") for item in due]
         until = collection.strftime("%H:%M") if kind == "today" and collection else None
-        await self._async_notify(build_message(lang_for(self.hass, self.entry), kind, names, until))
+        message = build_message(lang_for(self.hass, self.entry), kind, names, until)
+        # The event goes first, so a failing notify target cannot stop it.
+        self.hass.bus.async_fire(
+            EVENT_REMINDER,
+            {
+                "entry_id": self.entry.entry_id,
+                "location": self.entry.title,
+                "kind": key,
+                "date": day.isoformat(),
+                "types": due,
+                "title": self.entry.title,
+                "message": message,
+                "until": until,
+            },
+        )
+        await self._async_notify(message)
 
-    def _due_names(self, day: date) -> list[str]:
+    def _due(self, day: date) -> list[dict[str, Any]]:
+        """Return the types due on the day, in order, as event payload items."""
         resolved = self.coordinator.data.resolved
         configs = get_types(self.entry)
-        names: list[str] = []
+        due: list[dict[str, Any]] = []
         for key in due_types(resolved, day):
             res = resolved[key]
             if res.status not in ("real", "estimate") or key not in configs:
                 continue
-            names.append(configs[key]["name"] + ("*" if res.estimate else ""))
-        return names
+            due.append({"key": key, "name": configs[key]["name"], "estimate": res.estimate})
+        return due
 
     async def _async_send_missing_warning(self) -> None:
         """Warn once per gap per type, and once while the source is down.
 
         The flags are set and saved only after a target received the warning,
-        so a failed send is tried again the next evening.
+        so a failed send is tried again the next evening. With no targets,
+        the event alone counts as delivered.
         """
         coordinator = self.coordinator
         data = coordinator.data
@@ -160,8 +180,22 @@ class ReminderScheduler:
         )
         if not missing and not source_down:
             return
+        configs = get_types(self.entry)
+        self.hass.bus.async_fire(
+            EVENT_DATA_MISSING,
+            {
+                "entry_id": self.entry.entry_id,
+                "location": self.entry.title,
+                "types": [
+                    {"key": key, "name": configs.get(key, {}).get("name", key)}
+                    for key in missing
+                ],
+                "source": source_down,
+            },
+        )
         # One message covers all types: the text names no type.
-        if not await self._async_notify(missing_text(lang_for(self.hass, self.entry))):
+        sent = await self._async_notify(missing_text(lang_for(self.hass, self.entry)))
+        if not sent and self.entry.options.get(CONF_NOTIFY_TARGETS):
             return
         for key in missing:
             coordinator.history[key].warned = True

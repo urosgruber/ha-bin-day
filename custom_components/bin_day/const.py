@@ -75,3 +75,7 @@ SIMBIO_URL = "https://www.simbio.si/sl/moj-dan-odvoza-odpadkov"
 SIMBIO_ACTION = "simbioOdvozOdpadkov"
 USER_AGENT = "BinDay/0.1.3 (+https://github.com/urosgruber/ha-bin-day)"
 REQUEST_TIMEOUT = 20
+
+# Events fired on the HA bus, so other automations can react.
+EVENT_REMINDER = "bin_day_reminder"
+EVENT_DATA_MISSING = "bin_day_data_missing"

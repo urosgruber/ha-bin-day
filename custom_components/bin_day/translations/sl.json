@@ -116,6 +116,9 @@
           "morning_time": "Zjutraj na dan odvoza",
           "day_before_on": "Zjutraj dan prej – vklopljeno",
           "day_before_time": "Zjutraj dan prej"
+        },
+        "data_description": {
+          "notify_targets": "Pusti prazno, če ne želiš obvestil. Bin Day potem sproži samo dogodek bin_day_reminder."
         }
       },
       "general": {
@@ -130,8 +133,7 @@
     "error": {
       "invalid_color": "Uporabi barvo v obliki #00a136.",
       "invalid_name": "Vnesi ime.",
-      "invalid_interval": "Vnesi celo število od 7 do 35 ali pusti prazno.",
-      "no_targets": "Izberi vsaj eno napravo za obvestila."
+      "invalid_interval": "Vnesi celo število od 7 do 35 ali pusti prazno."
     }
   },
   "selector": {

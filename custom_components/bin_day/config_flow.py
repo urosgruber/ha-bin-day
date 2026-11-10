@@ -491,9 +491,8 @@ class BinDayOptionsFlow(OptionsFlow):
         errors: dict[str, str] = {}
         if user_input is not None:
             enabled = bool(user_input[CONF_REMINDERS_ENABLED])
+            # Reminders on with no targets is valid: it means events only.
             chosen = list(user_input.get(CONF_NOTIFY_TARGETS, []))
-            if enabled and not chosen:
-                errors[CONF_NOTIFY_TARGETS] = "no_targets"
         if user_input is not None and not errors:
             initial = await self._apply_switches(user_input)
             if not enabled:

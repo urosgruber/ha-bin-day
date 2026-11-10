@@ -116,6 +116,9 @@
           "morning_time": "Morning of the day",
           "day_before_on": "Morning the day before – on",
           "day_before_time": "Morning the day before"
+        },
+        "data_description": {
+          "notify_targets": "Leave empty to send no notifications. Bin Day then fires only the bin_day_reminder event."
         }
       },
       "general": {
@@ -130,8 +133,7 @@
     "error": {
       "invalid_color": "Use a colour like #00a136.",
       "invalid_name": "Enter a name.",
-      "invalid_interval": "Enter a whole number from 7 to 35, or leave it empty.",
-      "no_targets": "Choose at least one device to notify."
+      "invalid_interval": "Enter a whole number from 7 to 35, or leave it empty."
     }
   },
   "selector": {
