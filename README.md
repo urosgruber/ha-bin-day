@@ -33,7 +33,7 @@ Bin Day shows your waste collection dates in Home Assistant. It has a card, sens
 4. Fill in the last screen:
    - **Waste types:** all types are selected. Clear the ones you do not want.
    - **Device name:** Bin Day suggests a name. You can change it.
-   - **Notify phones:** Bin Day selects all your phones with the Companion app (iOS and Android). Clear the field to turn reminders off.
+   - **Notify phones:** Bin Day selects the phones of the people in your home. A phone counts when it has the Companion app (iOS or Android) and its device tracker belongs to a person. A wall panel or tablet that belongs to no person is not selected. Clear the field to turn reminders off.
 
 Reminders work after this screen. You do not need an extra step. When you keep at least one phone, Bin Day turns reminders on. It uses the default times (see [Options](#options)).
 
@@ -87,8 +87,8 @@ badges:
 
 Open the integration and choose **Configure**.
 
-- **Each type:** name, icon, colour, estimate on or off, and interval. You can edit several types in one visit. Choose **Save and close** to save them all. If you close the dialog instead, nothing is saved.
-- **Reminders:** enable them and choose the notify targets. When no target is saved, the form offers all your phones with the Companion app. You can clear them. If you choose no target, Bin Day sends no notification and fires only the events (see [Events](#events)). Each reminder has an on/off setting in this form, next to its time. It controls the same reminder switch as the switch on the device.
+- **Waste types:** one form with a section for each type. Open a section to change the name, icon, colour, estimate on or off, and interval. **Submit** saves all types. If you close the dialog instead, nothing is saved.
+- **Reminders:** enable them and choose the notify targets. Each Companion app device shows its device name. When no target is saved, the form offers the phones of the people in your home (see [Set up](#set-up)). You can clear them. If you choose no target, Bin Day sends no notification and fires only the events (see [Events](#events)). Each reminder has its own section with an on/off setting and a time. The on/off setting controls the same reminder switch as the switch on the device. You choose the time in 15-minute steps.
   - Evening: 19:00, on.
   - Morning of collection: 07:30, on.
   - Morning before collection: 08:00, off.

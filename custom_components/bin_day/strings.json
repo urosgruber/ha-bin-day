@@ -76,37 +76,142 @@
       },
       "types": {
         "title": "Waste types",
-        "description": "Choose the type to change.",
-        "data": {
-          "type": "Waste type"
-        }
-      },
-      "type": {
-        "title": "{type}",
-        "description": "Name, icon and colour for {type}. Use a colour like #00a136. The interval must be 7 to 35 days.",
-        "data": {
-          "name": "Name",
-          "icon": "Icon",
-          "color": "Colour",
-          "estimate": "Estimate dates",
-          "interval": "Interval in days (empty = learn)"
+        "description": "Open a type to change its name, icon, colour or estimate. Use a colour like #00a136. The interval must be 7 to 35 days. Submit saves all types.",
+        "sections": {
+          "type_1": {
+            "name": "{type_1}",
+            "data": {
+              "name": "Name",
+              "icon": "Icon",
+              "color": "Colour",
+              "estimate": "Estimate dates",
+              "interval": "Interval in days (empty = learn)"
+            }
+          },
+          "type_2": {
+            "name": "{type_2}",
+            "data": {
+              "name": "Name",
+              "icon": "Icon",
+              "color": "Colour",
+              "estimate": "Estimate dates",
+              "interval": "Interval in days (empty = learn)"
+            }
+          },
+          "type_3": {
+            "name": "{type_3}",
+            "data": {
+              "name": "Name",
+              "icon": "Icon",
+              "color": "Colour",
+              "estimate": "Estimate dates",
+              "interval": "Interval in days (empty = learn)"
+            }
+          },
+          "type_4": {
+            "name": "{type_4}",
+            "data": {
+              "name": "Name",
+              "icon": "Icon",
+              "color": "Colour",
+              "estimate": "Estimate dates",
+              "interval": "Interval in days (empty = learn)"
+            }
+          },
+          "type_5": {
+            "name": "{type_5}",
+            "data": {
+              "name": "Name",
+              "icon": "Icon",
+              "color": "Colour",
+              "estimate": "Estimate dates",
+              "interval": "Interval in days (empty = learn)"
+            }
+          },
+          "type_6": {
+            "name": "{type_6}",
+            "data": {
+              "name": "Name",
+              "icon": "Icon",
+              "color": "Colour",
+              "estimate": "Estimate dates",
+              "interval": "Interval in days (empty = learn)"
+            }
+          },
+          "type_7": {
+            "name": "{type_7}",
+            "data": {
+              "name": "Name",
+              "icon": "Icon",
+              "color": "Colour",
+              "estimate": "Estimate dates",
+              "interval": "Interval in days (empty = learn)"
+            }
+          },
+          "type_8": {
+            "name": "{type_8}",
+            "data": {
+              "name": "Name",
+              "icon": "Icon",
+              "color": "Colour",
+              "estimate": "Estimate dates",
+              "interval": "Interval in days (empty = learn)"
+            }
+          },
+          "type_9": {
+            "name": "{type_9}",
+            "data": {
+              "name": "Name",
+              "icon": "Icon",
+              "color": "Colour",
+              "estimate": "Estimate dates",
+              "interval": "Interval in days (empty = learn)"
+            }
+          },
+          "type_10": {
+            "name": "{type_10}",
+            "data": {
+              "name": "Name",
+              "icon": "Icon",
+              "color": "Colour",
+              "estimate": "Estimate dates",
+              "interval": "Interval in days (empty = learn)"
+            }
+          }
         }
       },
       "reminders": {
         "title": "Reminders",
-        "description": "You can also turn each reminder on or off with its switch on the device.",
         "data": {
           "reminders_enabled": "Send reminders",
-          "notify_targets": "Send to",
-          "evening_on": "Evening before – on",
-          "evening_time": "Evening before",
-          "morning_on": "Morning of the day – on",
-          "morning_time": "Morning of the day",
-          "day_before_on": "Morning the day before – on",
-          "day_before_time": "Morning the day before"
+          "notify_targets": "Send to"
         },
         "data_description": {
+          "reminders_enabled": "You can also turn each reminder on or off with its switch on the device.",
           "notify_targets": "Leave empty to send no notifications. Bin Day then fires only the bin_day_reminder event."
+        },
+        "sections": {
+          "evening": {
+            "name": "Evening before",
+            "data": {
+              "on": "On",
+              "time": "Time"
+            }
+          },
+          "morning": {
+            "name": "Morning of the day",
+            "data": {
+              "on": "On",
+              "time": "Time"
+            }
+          },
+          "day_before": {
+            "name": "Morning the day before",
+            "data": {
+              "on": "On",
+              "time": "Time"
+            }
+          }
         }
       },
       "general": {

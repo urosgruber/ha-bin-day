@@ -26,6 +26,7 @@ from custom_components.bin_day.const import (
 )
 from custom_components.bin_day.coordinator import get_types
 
+from .test_config_flow import _add_phones
 from .test_reminders import switch_id
 from .test_coordinator import FakeSource, at, d, make_entry, set_time_zone, setup, unload  # noqa: F401
 
@@ -56,17 +57,53 @@ async def _entry(hass: HomeAssistant, freezer: FrozenDateTimeFactory, options=No
     return entry
 
 
-async def _pick_type(hass: HomeAssistant, entry, key: str):
-    result = await _menu(hass, entry, "types")
-    assert result["step_id"] == "types"
-    labels = {o["value"]: o["label"] for o in result["data_schema"].schema["type"].config["options"]}
-    assert labels == {
-        "mko": "Mixed waste",
-        "emb": "Packaging",
-        "bio": "Bio waste",
-        "done": "Save and close",
+ORDER = ["mko", "emb", "bio"]
+
+
+def _slots(result) -> list[str]:
+    """Return the section names of the types form, in order."""
+    return [str(k) for k in result["data_schema"].schema]
+
+
+def _section_fields(result, slot: str) -> dict:
+    """Return the fields of one section as {name: marker}."""
+    marker = next(k for k in result["data_schema"].schema if str(k) == slot)
+    section = result["data_schema"].schema[marker]
+    return {str(k): k for k in section.schema.schema}
+
+
+def _suggested(result, slot: str) -> dict:
+    """Return the suggested values of the fields of one section."""
+    return {
+        name: marker.description["suggested_value"]
+        for name, marker in _section_fields(result, slot).items()
+        if marker.description and "suggested_value" in marker.description
     }
-    return await hass.config_entries.options.async_configure(result["flow_id"], {"type": key})
+
+
+def _collapsed(result) -> dict[str, bool]:
+    return {
+        str(k): v.options["collapsed"] for k, v in result["data_schema"].schema.items()
+    }
+
+
+def _types_input(entry, edits: dict[str, dict] | None = None) -> dict:
+    """Return the full input of the types form: current values plus edits."""
+    types = get_types(entry)
+    data: dict = {}
+    for index, key in enumerate(ORDER):
+        conf = types[key]
+        values = {
+            "name": conf["name"],
+            "icon": conf["icon"],
+            "color": conf["color"],
+            "estimate": conf["estimate"],
+            **((edits or {}).get(key) or {}),
+        }
+        if "interval" not in values and conf.get("interval") is not None:
+            values["interval"] = conf["interval"]
+        data[f"type_{index + 1}"] = values
+    return data
 
 
 async def test_options_types_change_color_and_interval(
@@ -74,30 +111,31 @@ async def test_options_types_change_color_and_interval(
 ) -> None:
     entry = await _entry(hass, freezer)
     with patch("custom_components.bin_day._create_source", return_value=FakeSource({"emb": []})):
-        result = await _pick_type(hass, entry, "emb")
-        assert result["step_id"] == "type"
-        assert result["description_placeholders"] == {"type": "Packaging"}
-        flow_id = result["flow_id"]
-        base = {"name": "Packaging", "icon": "mdi:recycle", "color": "#ffaa00", "estimate": False}
-
-        # Interval out of range -> error on the field, input kept.
-        result = await hass.config_entries.options.async_configure(
-            flow_id, {**base, "interval": 40}
-        )
-        assert result["type"] is FlowResultType.FORM
-        assert result["errors"] == {"interval": "invalid_interval"}
-        # Bad colour -> error on the field.
-        result = await hass.config_entries.options.async_configure(
-            flow_id, {**base, "color": "red", "interval": 21}
-        )
-        assert result["errors"] == {"color": "invalid_color"}
-
-        result = await hass.config_entries.options.async_configure(
-            flow_id, {**base, "interval": 21}
-        )
-        assert result["type"] is FlowResultType.FORM
+        result = await _menu(hass, entry, "types")
         assert result["step_id"] == "types"
-        result = await hass.config_entries.options.async_configure(flow_id, {"type": "done"})
+        flow_id = result["flow_id"]
+        edit = {"color": "#ffaa00", "estimate": False}
+
+        # Interval out of range -> error on the section.
+        result = await hass.config_entries.options.async_configure(
+            flow_id, _types_input(entry, {"emb": {**edit, "interval": 40}})
+        )
+        assert result["type"] is FlowResultType.FORM
+        assert result["errors"] == {"type_2": "invalid_interval"}
+        # Bad colour -> error on the section.
+        result = await hass.config_entries.options.async_configure(
+            flow_id, _types_input(entry, {"emb": {**edit, "color": "red", "interval": 21}})
+        )
+        assert result["errors"] == {"type_2": "invalid_color"}
+        # Empty name -> error on the section.
+        result = await hass.config_entries.options.async_configure(
+            flow_id, _types_input(entry, {"emb": {**edit, "name": " "}})
+        )
+        assert result["errors"] == {"type_2": "invalid_name"}
+
+        result = await hass.config_entries.options.async_configure(
+            flow_id, _types_input(entry, {"emb": {**edit, "interval": 21}})
+        )
         assert result["type"] is FlowResultType.CREATE_ENTRY
         await hass.async_block_till_done()
     emb = get_types(entry)["emb"]
@@ -106,17 +144,12 @@ async def test_options_types_change_color_and_interval(
     assert emb["estimate"] is False
     assert get_types(entry)["mko"]["color"] == "#00a136"
 
-    # Empty interval -> None (learned); other saved types are kept.
+    # Empty interval -> None (learned).
     with patch("custom_components.bin_day._create_source", return_value=FakeSource({"emb": []})):
-        result = await _pick_type(hass, entry, "emb")
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"],
-            {"name": "Packaging", "icon": "mdi:recycle", "color": "#ffaa00", "estimate": True},
-        )
-        assert result["step_id"] == "types"
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], {"type": "done"}
-        )
+        result = await _menu(hass, entry, "types")
+        data = _types_input(entry, {"emb": {"estimate": True}})
+        del data["type_2"]["interval"]
+        result = await hass.config_entries.options.async_configure(result["flow_id"], data)
         assert result["type"] is FlowResultType.CREATE_ENTRY
         await hass.async_block_till_done()
     assert get_types(entry)["emb"]["interval"] is None
@@ -165,7 +198,7 @@ async def test_options_reminders(hass: HomeAssistant, freezer: FrozenDateTimeFac
         try:
             await hass.config_entries.options.async_configure(
                 flow_id,
-                {CONF_REMINDERS_ENABLED: True, CONF_NOTIFY_TARGETS: ["light.x"]},
+                _reminder_input(targets=["light.x"]),
             )
         except (InvalidData, vol.Invalid):
             pass
@@ -177,9 +210,9 @@ async def test_options_reminders(hass: HomeAssistant, freezer: FrozenDateTimeFac
             {
                 CONF_REMINDERS_ENABLED: True,
                 CONF_NOTIFY_TARGETS: ["mobile_app_two"],
-                CONF_EVENING_TIME: "18:45:00",
-                CONF_MORNING_TIME: "07:00:00",
-                CONF_DAY_BEFORE_TIME: "08:30:00",
+                "evening": {"on": True, "time": "18:45"},
+                "morning": {"on": True, "time": "07:00"},
+                "day_before": {"on": False, "time": "08:30"},
             },
         )
         assert result["type"] is FlowResultType.CREATE_ENTRY
@@ -200,13 +233,9 @@ async def test_options_reminders_enabled_without_targets_means_events_only(
     result = await _menu(hass, entry, "reminders")
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        {
-            CONF_REMINDERS_ENABLED: True,
-            CONF_NOTIFY_TARGETS: [],
-            CONF_EVENING_TIME: "18:45:00",
-            CONF_MORNING_TIME: "07:00:00",
-            CONF_DAY_BEFORE_TIME: "08:30:00",
-        },
+        _reminder_input(
+            targets=[], times={"evening": "18:45", "morning": "07:00", "day_before": "08:30"}
+        ),
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
@@ -214,18 +243,60 @@ async def test_options_reminders_enabled_without_targets_means_events_only(
     assert entry.options[CONF_NOTIFY_TARGETS] == []
     await unload(hass, entry)
 
+
 async def test_options_reminders_defaults(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
     entry = await _entry(hass, freezer)
     result = await _menu(hass, entry, "reminders")
-    schema = result["data_schema"].schema
-    defaults = {str(k): k.default() for k in schema if k.default is not None and callable(k.default)}
-    assert defaults[CONF_REMINDERS_ENABLED] is False
-    assert defaults[CONF_EVENING_TIME] == "19:00"
-    assert defaults[CONF_MORNING_TIME] == "07:30"
-    assert defaults[CONF_DAY_BEFORE_TIME] == "08:00"
+    assert _form_defaults(result)[CONF_REMINDERS_ENABLED] is False
+    assert _section_defaults(result, "evening")["time"] == "19:00"
+    assert _section_defaults(result, "morning")["time"] == "07:30"
+    assert _section_defaults(result, "day_before")["time"] == "08:00"
     hass.config_entries.options.async_abort(result["flow_id"])
+    await unload(hass, entry)
+
+
+async def test_options_reminders_time_is_a_15_minute_grid(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    entry = await _entry(hass, freezer)
+    result = await _menu(hass, entry, "reminders")
+    for name in ("evening", "morning", "day_before"):
+        options = _section_options(result, name, "time")
+        assert len(options) == 96
+        assert options[0] == "00:00"
+        assert options[1] == "00:15"
+        assert options[-1] == "23:45"
+        assert options == sorted(options)
+    hass.config_entries.options.async_abort(result["flow_id"])
+    await unload(hass, entry)
+
+
+async def test_options_reminders_saved_off_grid_time_is_kept_in_order(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    entry = await _entry(hass, freezer, {CONF_MORNING_TIME: "07:40"})
+    result = await _menu(hass, entry, "reminders")
+    morning = _section_options(result, "morning", "time")
+    assert len(morning) == 97
+    assert morning[morning.index("07:30") : morning.index("07:30") + 3] == [
+        "07:30",
+        "07:40",
+        "07:45",
+    ]
+    assert morning == sorted(morning)
+    assert _section_defaults(result, "morning")["time"] == "07:40"
+    # The other sections keep the plain grid.
+    assert len(_section_options(result, "evening", "time")) == 96
+    # Submitting the form unchanged keeps the saved time.
+    with patch("custom_components.bin_day._create_source", return_value=FakeSource({})):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], _reminder_input(targets=[], times={"morning": "07:40"})
+        )
+        assert result["type"] is FlowResultType.CREATE_ENTRY
+        await hass.async_block_till_done()
+    assert entry.options[CONF_MORNING_TIME] == "07:40"
     await unload(hass, entry)
 
 
@@ -275,16 +346,9 @@ async def test_options_reload_entry(hass: HomeAssistant, freezer: FrozenDateTime
 
 
 async def _save_type(hass, entry, key, **fields):
-    result = await _pick_type(hass, entry, key)
-    base = {"name": get_types(entry)[key]["name"], "icon": "mdi:recycle", "color": "#112233",
-            "estimate": True}
+    result = await _menu(hass, entry, "types")
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {**base, **fields}
-    )
-    assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "types"
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"type": "done"}
+        result["flow_id"], _types_input(entry, {key: fields})
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
@@ -304,7 +368,7 @@ async def test_options_editing_type_keeps_other_type_override(
     await unload(hass, entry)
 
 
-async def test_options_sections_keep_each_other(
+async def test_options_steps_keep_each_other(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
     async def _noop(call: ServiceCall) -> None:
@@ -317,9 +381,7 @@ async def test_options_sections_keep_each_other(
         result = await _menu(hass, entry, "reminders")
         await hass.config_entries.options.async_configure(
             result["flow_id"],
-            {CONF_REMINDERS_ENABLED: True, CONF_NOTIFY_TARGETS: ["mobile_app_one"],
-             CONF_EVENING_TIME: "18:00:00",
-             CONF_MORNING_TIME: "07:00:00", CONF_DAY_BEFORE_TIME: "08:00:00"},
+            _reminder_input(times={"evening": "18:00", "morning": "07:00"}),
         )
         await hass.async_block_till_done()
         result = await _menu(hass, entry, "general")
@@ -379,32 +441,11 @@ async def test_options_general_language_rejects_unknown(
     await unload(hass, entry)
 
 
-async def test_options_last_step_flags_and_picker_order(
+async def test_options_form_is_a_last_step(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
     entry = await _entry(hass, freezer)
-    result = await _menu(hass, entry, "types")
-    assert result["step_id"] == "types"
-    assert result["last_step"] is False
-    schema = result["data_schema"].schema
-    marker = next(k for k in schema if str(k) == "type")
-    config = schema[marker].config
-    assert [o["value"] for o in config["options"]] == [*get_types(entry), "done"]
-    assert config["sort"] is False
-    assert marker.default() == next(iter(get_types(entry)))
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"type": "emb"}
-    )
-    assert result["step_id"] == "type"
-    assert result["last_step"] is False
-    await unload(hass, entry)
-
-
-async def test_options_finishing_forms_do_not_set_last_step_false(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory
-) -> None:
-    entry = await _entry(hass, freezer)
-    for choice in ("reminders", "general"):
+    for choice in ("types", "reminders", "general"):
         result = await _menu(hass, entry, choice)
         assert result["type"] is FlowResultType.FORM
         assert result.get("last_step") is not False
@@ -412,20 +453,58 @@ async def test_options_finishing_forms_do_not_set_last_step_false(
     await unload(hass, entry)
 
 
-def _picker(result) -> tuple[list[str], str]:
-    schema = result["data_schema"].schema
-    marker = next(k for k in schema if str(k) == "type")
-    return [o["value"] for o in schema[marker].config["options"]], marker.default()
-
-
-def _form(key_name: str) -> dict:
-    return {"name": key_name, "icon": "mdi:recycle", "color": "#112233", "estimate": True}
-
-
-async def test_options_picker_follows_the_order_field(
+async def test_options_types_sections_follow_the_order(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
-    """The picker lists the types by `order`, with the first one as default."""
+    """The sections follow ordered_keys; the names are in the placeholders."""
+    entry = await _entry(hass, freezer)
+    result = await _menu(hass, entry, "types")
+    assert _slots(result) == ["type_1", "type_2", "type_3"]
+    assert result["description_placeholders"] == {
+        "type_1": "Mixed waste",
+        "type_2": "Packaging",
+        "type_3": "Bio waste",
+    }
+    assert set(_section_fields(result, "type_1")) == {
+        "name", "icon", "color", "estimate", "interval"
+    }
+    hass.config_entries.options.async_abort(result["flow_id"])
+    await unload(hass, entry)
+
+
+async def test_options_types_sections_all_collapsed_at_first(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    entry = await _entry(hass, freezer)
+    result = await _menu(hass, entry, "types")
+    assert _collapsed(result) == {"type_1": True, "type_2": True, "type_3": True}
+    hass.config_entries.options.async_abort(result["flow_id"])
+    await unload(hass, entry)
+
+
+async def test_options_types_error_opens_only_the_bad_section_and_keeps_input(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    entry = await _entry(hass, freezer)
+    result = await _menu(hass, entry, "types")
+    data = _types_input(
+        entry, {"emb": {"color": "red", "icon": "mdi:bottle-wine", "interval": 21}}
+    )
+    result = await hass.config_entries.options.async_configure(result["flow_id"], data)
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"type_2": "invalid_color"}
+    assert _collapsed(result) == {"type_1": True, "type_2": False, "type_3": True}
+    # The input of the user stays as the suggested values.
+    for slot in ("type_1", "type_2", "type_3"):
+        assert _suggested(result, slot) == data[slot]
+    hass.config_entries.options.async_abort(result["flow_id"])
+    await unload(hass, entry)
+
+
+async def test_options_types_sections_follow_the_order_field(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """The sections follow `order`, not the stored dict order."""
     freezer.move_to(at(9, 9))
     types = {k: {**v, "order": i} for i, (k, v) in enumerate(make_entry().data[CONF_TYPES].items())}
     # Stored dict order is alphabetical, as in a real install.
@@ -433,14 +512,16 @@ async def test_options_picker_follows_the_order_field(
     assert list(entry.data[CONF_TYPES]) == ["bio", "emb", "mko"]
     assert await setup(hass, entry, FakeSource({}))
     result = await _menu(hass, entry, "types")
-    values, default = _picker(result)
-    assert values == ["mko", "emb", "bio", "done"]
-    assert default == "mko"
+    assert result["description_placeholders"] == {
+        "type_1": "Mixed waste",
+        "type_2": "Packaging",
+        "type_3": "Bio waste",
+    }
     hass.config_entries.options.async_abort(result["flow_id"])
     await unload(hass, entry)
 
 
-async def test_options_picker_known_types_in_default_order(
+async def test_options_types_sections_known_types_in_default_order(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
     """Without an `order` field the known types keep the Simbio order."""
@@ -449,56 +530,53 @@ async def test_options_picker_known_types_in_default_order(
     assert list(entry.data[CONF_TYPES]) == ["bio", "emb", "mko"]
     assert await setup(hass, entry, FakeSource({}))
     result = await _menu(hass, entry, "types")
-    values, default = _picker(result)
-    assert values == ["mko", "emb", "bio", "done"]
-    assert default == "mko"
+    assert list(result["description_placeholders"].values()) == [
+        "Mixed waste",
+        "Packaging",
+        "Bio waste",
+    ]
     hass.config_entries.options.async_abort(result["flow_id"])
     await unload(hass, entry)
 
 
-async def test_options_edit_two_types_then_done_saves_both(
+async def test_options_edit_two_types_in_one_submit_saves_both(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
     entry = await _entry(hass, freezer)
     with patch("custom_components.bin_day._create_source", return_value=FakeSource({})):
         result = await _menu(hass, entry, "types")
-        flow_id = result["flow_id"]
-        result = await hass.config_entries.options.async_configure(flow_id, {"type": "emb"})
-        assert result["step_id"] == "type"
         result = await hass.config_entries.options.async_configure(
-            flow_id, {**_form("Packaging"), "color": "#aa0000", "interval": 21}
+            result["flow_id"],
+            _types_input(
+                entry,
+                {"emb": {"color": "#aa0000", "interval": 21}, "bio": {"color": "#00bb00"}},
+            ),
         )
-        assert result["type"] is FlowResultType.FORM
-        assert result["step_id"] == "types"
-        assert result["last_step"] is False
-        # Nothing is saved before "done".
-        assert CONF_TYPES not in entry.options
-
-        # The edited values show when the type is picked again.
-        result = await hass.config_entries.options.async_configure(flow_id, {"type": "emb"})
-        suggested = {
-            str(k): k.description["suggested_value"]
-            for k in result["data_schema"].schema
-            if k.description and "suggested_value" in k.description
-        }
-        defaults = {str(k): k.default() for k in result["data_schema"].schema if callable(k.default)}
-        assert suggested["interval"] == 21
-        assert defaults["color"] == "#aa0000"
-        result = await hass.config_entries.options.async_configure(
-            flow_id, {**_form("Packaging"), "color": "#aa0000", "interval": 21}
-        )
-        result = await hass.config_entries.options.async_configure(flow_id, {"type": "bio"})
-        result = await hass.config_entries.options.async_configure(
-            flow_id, {**_form("Bio waste"), "color": "#00bb00"}
-        )
-        assert result["step_id"] == "types"
-        result = await hass.config_entries.options.async_configure(flow_id, {"type": "done"})
         assert result["type"] is FlowResultType.CREATE_ENTRY
         await hass.async_block_till_done()
     types = get_types(entry)
     assert types["emb"]["color"] == "#aa0000"
     assert types["emb"]["interval"] == 21
     assert types["bio"]["color"] == "#00bb00"
+    assert types["mko"]["color"] == "#00a136"
+    # The edited values show when the form opens again.
+    with patch("custom_components.bin_day._create_source", return_value=FakeSource({})):
+        result = await _menu(hass, entry, "types")
+        fields = _section_fields(result, "type_2")
+        assert fields["color"].default() == "#aa0000"
+        assert _suggested(result, "type_2") == {"interval": 21}
+        hass.config_entries.options.async_abort(result["flow_id"])
+    await unload(hass, entry)
+
+
+async def test_options_types_keep_other_override_when_not_edited(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    entry = await _entry(hass, freezer, {CONF_TYPES: {"emb": {"color": "#aa0000", "interval": 21}}})
+    with patch("custom_components.bin_day._create_source", return_value=FakeSource({})):
+        await _save_type(hass, entry, "bio", color="#00bb00")
+    assert entry.options[CONF_TYPES]["emb"] == {"color": "#aa0000", "interval": 21}
+    assert list(entry.options[CONF_TYPES]) == ["emb", "bio"]
     await unload(hass, entry)
 
 
@@ -508,11 +586,11 @@ async def test_options_abort_saves_nothing(
     entry = await _entry(hass, freezer)
     result = await _menu(hass, entry, "types")
     flow_id = result["flow_id"]
-    await hass.config_entries.options.async_configure(flow_id, {"type": "emb"})
+    # A submit with an error does not save, and closing the dialog saves nothing.
     result = await hass.config_entries.options.async_configure(
-        flow_id, {**_form("Packaging"), "color": "#aa0000"}
+        flow_id, _types_input(entry, {"emb": {"color": "bad"}})
     )
-    assert result["step_id"] == "types"
+    assert result["type"] is FlowResultType.FORM
     hass.config_entries.options.async_abort(flow_id)
     await hass.async_block_till_done()
     assert CONF_TYPES not in entry.options
@@ -520,21 +598,38 @@ async def test_options_abort_saves_nothing(
     await unload(hass, entry)
 
 
-async def test_options_done_without_edit_keeps_options(
+async def test_options_submit_without_edit_keeps_options(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
     entry = await _entry(hass, freezer, {CONF_MISSING_WARNING: False})
+    before = dict(entry.options)
     with patch("custom_components.bin_day._create_source", return_value=FakeSource({})):
         result = await _menu(hass, entry, "types")
         result = await hass.config_entries.options.async_configure(
-            result["flow_id"], {"type": "done"}
+            result["flow_id"], _types_input(entry)
         )
         assert result["type"] is FlowResultType.CREATE_ENTRY
+        # The options stay exactly as they were: no empty types key is added.
+        assert result["data"] == before
     assert entry.options[CONF_MISSING_WARNING] is False
     await unload(hass, entry)
 
 
 # ----- reminder switches in the reminders form -----
+
+def _section_defaults(result, name: str) -> dict[str, object]:
+    """Return the defaults of the fields in one section."""
+    marker = next(k for k in result["data_schema"].schema if str(k) == name)
+    section = result["data_schema"].schema[marker]
+    return {str(k): k.default() for k in section.schema.schema if callable(k.default)}
+
+
+def _section_options(result, name: str, field: str) -> list[str]:
+    marker = next(k for k in result["data_schema"].schema if str(k) == name)
+    section = result["data_schema"].schema[marker]
+    key = next(k for k in section.schema.schema if str(k) == field)
+    return list(section.schema.schema[key].config["options"])
+
 
 def _form_defaults(result) -> dict[str, object]:
     return {
@@ -556,14 +651,19 @@ async def _enabled_entry(hass: HomeAssistant, freezer: FrozenDateTimeFactory):
     )
 
 
-def _reminder_input(**changes) -> dict:
+def _reminder_input(
+    enabled: bool = True,
+    targets: list[str] | None = None,
+    on: dict[str, bool] | None = None,
+    times: dict[str, str] | None = None,
+) -> dict:
+    """Return the input of the reminders form."""
+    on = {"evening": True, "morning": True, "day_before": False, **(on or {})}
+    times = {"evening": "19:00", "morning": "07:30", "day_before": "08:00", **(times or {})}
     return {
-        CONF_REMINDERS_ENABLED: True,
-        CONF_NOTIFY_TARGETS: ["mobile_app_one"],
-        CONF_EVENING_TIME: "19:00:00",
-        CONF_MORNING_TIME: "07:30:00",
-        CONF_DAY_BEFORE_TIME: "08:00:00",
-        **changes,
+        CONF_REMINDERS_ENABLED: enabled,
+        CONF_NOTIFY_TARGETS: ["mobile_app_one"] if targets is None else targets,
+        **{key: {"on": on[key], "time": times[key]} for key in on},
     }
 
 
@@ -576,17 +676,13 @@ async def test_options_reminders_form_order_and_defaults_without_switches(
     assert keys == [
         CONF_REMINDERS_ENABLED,
         CONF_NOTIFY_TARGETS,
-        "evening_on",
-        CONF_EVENING_TIME,
-        "morning_on",
-        CONF_MORNING_TIME,
-        "day_before_on",
-        CONF_DAY_BEFORE_TIME,
+        "evening",
+        "morning",
+        "day_before",
     ]
-    defaults = _form_defaults(result)
-    assert defaults["evening_on"] is True
-    assert defaults["morning_on"] is True
-    assert defaults["day_before_on"] is False
+    assert _section_defaults(result, "evening")["on"] is True
+    assert _section_defaults(result, "morning")["on"] is True
+    assert _section_defaults(result, "day_before")["on"] is False
     hass.config_entries.options.async_abort(result["flow_id"])
     await unload(hass, entry)
 
@@ -602,10 +698,9 @@ async def test_options_reminders_form_defaults_follow_switches(
         "switch", "turn_on", {"entity_id": switch_id(hass, entry, "day_before")}, blocking=True
     )
     result = await _menu(hass, entry, "reminders")
-    defaults = _form_defaults(result)
-    assert defaults["evening_on"] is False
-    assert defaults["morning_on"] is True
-    assert defaults["day_before_on"] is True
+    assert _section_defaults(result, "evening")["on"] is False
+    assert _section_defaults(result, "morning")["on"] is True
+    assert _section_defaults(result, "day_before")["on"] is True
     hass.config_entries.options.async_abort(result["flow_id"])
     await unload(hass, entry)
 
@@ -622,14 +717,14 @@ async def test_options_reminders_submit_turns_switches_and_stores_no_booleans(
         result = await _menu(hass, entry, "reminders")
         result = await hass.config_entries.options.async_configure(
             result["flow_id"],
-            _reminder_input(evening_on=False, morning_on=True, day_before_on=True),
+            _reminder_input(on={"evening": False, "morning": True, "day_before": True}),
         )
         assert result["type"] is FlowResultType.CREATE_ENTRY
         await hass.async_block_till_done()
     assert hass.states.get(evening).state == "off"
     assert hass.states.get(switch_id(hass, entry, "morning")).state == "on"
     assert hass.states.get(day_before).state == "on"
-    for key in ("evening_on", "morning_on", "day_before_on", CONF_INITIAL_SWITCH_STATES):
+    for key in ("evening", "morning", "day_before", CONF_INITIAL_SWITCH_STATES):
         assert key not in entry.options
     await unload(hass, entry)
 
@@ -650,7 +745,7 @@ async def test_options_reminders_first_enable_stores_initial_states(
         result = await _menu(hass, entry, "reminders")
         result = await hass.config_entries.options.async_configure(
             result["flow_id"],
-            _reminder_input(evening_on=False, morning_on=True, day_before_on=True),
+            _reminder_input(on={"evening": False, "morning": True, "day_before": True}),
         )
         assert result["type"] is FlowResultType.CREATE_ENTRY
         await hass.async_block_till_done()
@@ -659,7 +754,7 @@ async def test_options_reminders_first_enable_stores_initial_states(
         "morning": True,
         "day_before": True,
     }
-    for key in ("evening_on", "morning_on", "day_before_on"):
+    for key in ("evening", "morning", "day_before"):
         assert key not in entry.options
     # The new switches start with the wanted states.
     assert hass.states.get(switch_id(hass, entry, "evening")).state == "off"
@@ -673,23 +768,25 @@ def test_new_option_strings_exist_in_every_language() -> None:
     from pathlib import Path
 
     base = Path(__file__).parent.parent / "custom_components" / "bin_day"
-    expected_en = {
-        "evening_on": "Evening before – on",
-        "morning_on": "Morning of the day – on",
-        "day_before_on": "Morning the day before – on",
-    }
-    expected_sl = {
-        "evening_on": "Večer prej – vklopljeno",
-        "morning_on": "Zjutraj na dan odvoza – vklopljeno",
-        "day_before_on": "Zjutraj dan prej – vklopljeno",
-    }
-    for name, expected in (("strings.json", expected_en), ("translations/en.json", expected_en),
-                           ("translations/sl.json", expected_sl)):
-        step = json.loads((base / name).read_text())["options"]["step"]
-        for key, label in expected.items():
-            assert step["reminders"]["data"][key] == label, (name, key)
-        assert step["reminders"]["description"], name
-        assert step["types"]["data"]["type"], name
+    for name in ("strings.json", "translations/en.json", "translations/sl.json"):
+        raw = json.loads((base / name).read_text())
+        step = raw["options"]["step"]
+        reminders = step["reminders"]
+        assert set(reminders["data"]) == {"reminders_enabled", "notify_targets"}, name
+        assert set(reminders["data_description"]) == {"reminders_enabled", "notify_targets"}, name
+        assert set(reminders["sections"]) == {"evening", "morning", "day_before"}, name
+        for section in reminders["sections"].values():
+            assert section["name"], name
+            assert set(section["data"]) == {"on", "time"}, name
+        # One section for each type slot; the picker step is gone.
+        assert "type" not in step, name
+        sections = step["types"]["sections"]
+        assert set(sections) == {f"type_{n}" for n in range(1, 11)}, name
+        for number, section in sections.items():
+            assert section["name"] == "{" + number + "}", name
+            assert set(section["data"]) == {
+                "name", "icon", "color", "estimate", "interval"
+            }, name
     sl = json.loads((base / "translations/sl.json").read_text())
     assert "Send reminders" not in json.dumps(sl)
 
@@ -703,10 +800,7 @@ async def test_options_reminders_disable_keeps_wanted_switch_states(
         result = await hass.config_entries.options.async_configure(
             result["flow_id"],
             _reminder_input(
-                **{CONF_REMINDERS_ENABLED: False},
-                evening_on=False,
-                morning_on=True,
-                day_before_on=True,
+                enabled=False, on={"evening": False, "morning": True, "day_before": True}
             ),
         )
         assert result["type"] is FlowResultType.CREATE_ENTRY
@@ -718,29 +812,16 @@ async def test_options_reminders_disable_keeps_wanted_switch_states(
         }
         # The form shows the kept states while the switches do not exist.
         result = await _menu(hass, entry, "reminders")
-        defaults = {
-            str(k): k.default() for k in result["data_schema"].schema if hasattr(k, "default")
-        }
-        assert defaults["evening_on"] is False
-        assert defaults["morning_on"] is True
-        assert defaults["day_before_on"] is True
+        assert _section_defaults(result, "evening")["on"] is False
+        assert _section_defaults(result, "morning")["on"] is True
+        assert _section_defaults(result, "day_before")["on"] is True
         hass.config_entries.options.async_abort(result["flow_id"])
     await unload(hass, entry)
 
 
 def _fake_phones(hass: HomeAssistant) -> None:
-    """Fake one iOS phone and one laptop; only the phone is a target."""
-
-    async def _noop(call: ServiceCall) -> None:
-        return None
-
-    for os_name, name in (("iOS", "Anna Phone"), ("Linux", "Box")):
-        MockConfigEntry(
-            domain="mobile_app", data={"os_name": os_name, "device_name": name}
-        ).add_to_hass(hass)
-        hass.services.async_register(
-            "notify", f"mobile_app_{name.lower().replace(' ', '_')}", _noop
-        )
+    """Fake one iOS phone of a person and one laptop; only the phone is a target."""
+    _add_phones(hass, [("iOS", "Phone A"), ("Linux", "Box")])
 
 
 def _target_default(result) -> list[str]:
@@ -757,7 +838,7 @@ async def test_options_reminders_prefill_phones_when_no_saved_targets(
     options = {} if saved is None else {CONF_NOTIFY_TARGETS: saved}
     entry = await _entry(hass, freezer, options)
     result = await _menu(hass, entry, "reminders")
-    assert _target_default(result) == ["mobile_app_anna_phone"]
+    assert _target_default(result) == ["mobile_app_phone_a"]
     hass.config_entries.options.async_abort(result["flow_id"])
     await unload(hass, entry)
 
@@ -795,13 +876,7 @@ async def test_options_reminders_empty_submit_stays_empty(
     result = await _menu(hass, entry, "reminders")
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        {
-            CONF_REMINDERS_ENABLED: True,
-            CONF_NOTIFY_TARGETS: [],
-            CONF_EVENING_TIME: "19:00:00",
-            CONF_MORNING_TIME: "07:30:00",
-            CONF_DAY_BEFORE_TIME: "08:00:00",
-        },
+        _reminder_input(targets=[]),
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()

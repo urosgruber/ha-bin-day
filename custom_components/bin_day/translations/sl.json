@@ -76,37 +76,142 @@
       },
       "types": {
         "title": "Vrste odpadkov",
-        "description": "Izberi vrsto, ki jo želiš spremeniti.",
-        "data": {
-          "type": "Vrsta odpadkov"
-        }
-      },
-      "type": {
-        "title": "{type}",
-        "description": "Ime, ikona in barva za {type}. Uporabi barvo v obliki #00a136. Interval mora biti od 7 do 35 dni.",
-        "data": {
-          "name": "Ime",
-          "icon": "Ikona",
-          "color": "Barva",
-          "estimate": "Oceni datume",
-          "interval": "Interval v dneh (prazno = nauči se)"
+        "description": "Odpri vrsto, ki ji želiš spremeniti ime, ikono, barvo ali oceno. Uporabi barvo v obliki #00a136. Interval mora biti od 7 do 35 dni. Pošlji shrani vse vrste.",
+        "sections": {
+          "type_1": {
+            "name": "{type_1}",
+            "data": {
+              "name": "Ime",
+              "icon": "Ikona",
+              "color": "Barva",
+              "estimate": "Oceni datume",
+              "interval": "Interval v dneh (prazno = nauči se)"
+            }
+          },
+          "type_2": {
+            "name": "{type_2}",
+            "data": {
+              "name": "Ime",
+              "icon": "Ikona",
+              "color": "Barva",
+              "estimate": "Oceni datume",
+              "interval": "Interval v dneh (prazno = nauči se)"
+            }
+          },
+          "type_3": {
+            "name": "{type_3}",
+            "data": {
+              "name": "Ime",
+              "icon": "Ikona",
+              "color": "Barva",
+              "estimate": "Oceni datume",
+              "interval": "Interval v dneh (prazno = nauči se)"
+            }
+          },
+          "type_4": {
+            "name": "{type_4}",
+            "data": {
+              "name": "Ime",
+              "icon": "Ikona",
+              "color": "Barva",
+              "estimate": "Oceni datume",
+              "interval": "Interval v dneh (prazno = nauči se)"
+            }
+          },
+          "type_5": {
+            "name": "{type_5}",
+            "data": {
+              "name": "Ime",
+              "icon": "Ikona",
+              "color": "Barva",
+              "estimate": "Oceni datume",
+              "interval": "Interval v dneh (prazno = nauči se)"
+            }
+          },
+          "type_6": {
+            "name": "{type_6}",
+            "data": {
+              "name": "Ime",
+              "icon": "Ikona",
+              "color": "Barva",
+              "estimate": "Oceni datume",
+              "interval": "Interval v dneh (prazno = nauči se)"
+            }
+          },
+          "type_7": {
+            "name": "{type_7}",
+            "data": {
+              "name": "Ime",
+              "icon": "Ikona",
+              "color": "Barva",
+              "estimate": "Oceni datume",
+              "interval": "Interval v dneh (prazno = nauči se)"
+            }
+          },
+          "type_8": {
+            "name": "{type_8}",
+            "data": {
+              "name": "Ime",
+              "icon": "Ikona",
+              "color": "Barva",
+              "estimate": "Oceni datume",
+              "interval": "Interval v dneh (prazno = nauči se)"
+            }
+          },
+          "type_9": {
+            "name": "{type_9}",
+            "data": {
+              "name": "Ime",
+              "icon": "Ikona",
+              "color": "Barva",
+              "estimate": "Oceni datume",
+              "interval": "Interval v dneh (prazno = nauči se)"
+            }
+          },
+          "type_10": {
+            "name": "{type_10}",
+            "data": {
+              "name": "Ime",
+              "icon": "Ikona",
+              "color": "Barva",
+              "estimate": "Oceni datume",
+              "interval": "Interval v dneh (prazno = nauči se)"
+            }
+          }
         }
       },
       "reminders": {
         "title": "Opomniki",
-        "description": "Vsak opomnik lahko vklopiš ali izklopiš tudi s stikalom na napravi.",
         "data": {
           "reminders_enabled": "Pošiljaj opomnike",
-          "notify_targets": "Pošlji na",
-          "evening_on": "Večer prej – vklopljeno",
-          "evening_time": "Večer prej",
-          "morning_on": "Zjutraj na dan odvoza – vklopljeno",
-          "morning_time": "Zjutraj na dan odvoza",
-          "day_before_on": "Zjutraj dan prej – vklopljeno",
-          "day_before_time": "Zjutraj dan prej"
+          "notify_targets": "Pošlji na"
         },
         "data_description": {
+          "reminders_enabled": "Vsak opomnik lahko vklopiš ali izklopiš tudi s stikalom na napravi.",
           "notify_targets": "Pusti prazno, če ne želiš obvestil. Bin Day potem sproži samo dogodek bin_day_reminder."
+        },
+        "sections": {
+          "evening": {
+            "name": "Večer prej",
+            "data": {
+              "on": "Vklopljeno",
+              "time": "Ura"
+            }
+          },
+          "morning": {
+            "name": "Zjutraj na dan odvoza",
+            "data": {
+              "on": "Vklopljeno",
+              "time": "Ura"
+            }
+          },
+          "day_before": {
+            "name": "Zjutraj dan prej",
+            "data": {
+              "on": "Vklopljeno",
+              "time": "Ura"
+            }
+          }
         }
       },
       "general": {

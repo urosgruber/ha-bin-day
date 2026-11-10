@@ -15,7 +15,8 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import entity_registry as er
+from homeassistant.data_entry_flow import section
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     BooleanSelector,
@@ -71,10 +72,21 @@ _UNKNOWN_ICON = "mdi:delete"
 # this many matches.
 MIN_SEARCH_LENGTH = 3
 MAX_MATCHES = 50
-_ON = {key: f"{key}_on" for key in REMINDERS}
-# The last choice of the type picker in the options.
-_DONE = "done"
-_DONE_LABEL = {"en": "Save and close", "sl": "Shrani in zapri"}
+# The options form of the types has one section for each type. The section
+# names are fixed slots, because HA takes their titles from the translations.
+MAX_TYPES = 10
+# The reminder times in the options: one choice every 15 minutes.
+TIME_STEP_MINUTES = 15
+_TIME_KEY = {
+    EVENING: CONF_EVENING_TIME,
+    MORNING: CONF_MORNING_TIME,
+    DAY_BEFORE: CONF_DAY_BEFORE_TIME,
+}
+_TIME_DEFAULT = {
+    EVENING: DEFAULT_EVENING_TIME,
+    MORNING: DEFAULT_MORNING_TIME,
+    DAY_BEFORE: DEFAULT_DAY_BEFORE_TIME,
+}
 _NO_COLLECTION = {"en": "(no collection now)", "sl": "(trenutno ni odvoza)"}
 
 
@@ -144,27 +156,78 @@ def _offered_targets(hass: HomeAssistant) -> list[str]:
     return sorted(name for name in services if name not in _NOT_TARGETS)
 
 
+def type_slot(index: int) -> str:
+    """Return the section name of the type at this position."""
+    return f"type_{index + 1}"
+
+
+def time_options(current: str) -> list[str]:
+    """Return the times of the reminder select, with the current time in it."""
+    times = [
+        f"{minute // 60:02d}:{minute % 60:02d}"
+        for minute in range(0, 24 * 60, TIME_STEP_MINUTES)
+    ]
+    if current not in times:
+        times = sorted([*times, current])
+    return times
+
+
+def _companion_devices(hass: HomeAssistant) -> list[tuple[str, str, bool]]:
+    """Return the Companion app devices with a notify action.
+
+    Each item is the notify action, the device name and whether the device
+    is a person's phone. A phone runs iOS, iPadOS or Android, and its device
+    tracker belongs to a person. A wall panel normally belongs to no person.
+    """
+    tracked: set[str] = set()
+    for person in hass.states.async_all("person"):
+        tracked.update(person.attributes.get("device_trackers") or [])
+    devices = dr.async_get(hass)
+    entities = er.async_get(hass)
+    result: list[tuple[str, str, bool]] = []
+    for entry in hass.config_entries.async_entries("mobile_app"):
+        device_name = entry.data.get("device_name")
+        if not device_name:
+            continue
+        action = f"mobile_app_{slugify(device_name)}"
+        if not hass.services.has_service("notify", action):
+            continue
+        label = str(device_name)
+        trackers: set[str] = set()
+        for device in dr.async_entries_for_config_entry(devices, entry.entry_id):
+            label = device.name_by_user or device.name or label
+            trackers.update(
+                e.entity_id
+                for e in er.async_entries_for_device(entities, device.id)
+                if e.domain == "device_tracker"
+            )
+        system = str(entry.data.get("os_name", "")).lower()
+        phone = system in _PHONE_SYSTEMS and bool(trackers & tracked)
+        result.append((action, label, phone))
+    return result
+
+
 def notify_targets(hass: HomeAssistant) -> list[SelectOptionDict]:
-    """Return the notify actions as options of a select."""
-    return [SelectOptionDict(value=n, label=n) for n in _offered_targets(hass)]
+    """Return the notify actions as options of a select.
+
+    A device of the Companion app shows its device name. Other actions show
+    their action name.
+    """
+    names = {action: label for action, label, _ in _companion_devices(hass)}
+    options = [
+        SelectOptionDict(value=n, label=names.get(n, n))
+        for n in _offered_targets(hass)
+    ]
+    return sorted(options, key=lambda o: o["label"].casefold())
 
 
 def phone_targets(hass: HomeAssistant) -> list[str]:
-    """Return the notify actions of the phones of the Companion app.
+    """Return the notify actions of the persons' phones.
 
-    A phone counts when its system is iOS, iPadOS or Android and its notify
-    action exists now.
+    A phone runs iOS, iPadOS or Android, its device tracker belongs to a
+    person, and its notify action exists now.
     """
-    names: set[str] = set()
-    for entry in hass.config_entries.async_entries("mobile_app"):
-        system = str(entry.data.get("os_name", "")).lower()
-        device = entry.data.get("device_name")
-        if system not in _PHONE_SYSTEMS or not device:
-            continue
-        name = f"mobile_app_{slugify(device)}"
-        if hass.services.has_service("notify", name):
-            names.add(name)
-    return sorted(names)
+    return sorted(action for action, _, phone in _companion_devices(hass) if phone)
 
 
 class BinDayConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -351,43 +414,47 @@ class BinDayConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
 
+def _check_type(values: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
+    """Check the section of one type.
+
+    Return the first error, or None and the stored settings of the type.
+    """
+    errors = validate_type(values)
+    interval: int | None = None
+    raw = values.get("interval")
+    if raw is not None:
+        interval = int(raw) if float(raw).is_integer() else -1
+        if not INTERVAL_MIN <= interval <= INTERVAL_MAX:
+            errors["interval"] = "invalid_interval"
+    if errors:
+        return next(iter(errors.values())), {}
+    result = type_result(values)
+    result["estimate"] = bool(values["estimate"])
+    result["interval"] = interval
+    return None, result
+
+
 class BinDayOptionsFlow(OptionsFlow):
     """Edit the waste types, the reminders and the general settings.
 
-    The reminders and general steps save at once and end the flow. The types
-    steps collect changes on the flow and save them when the user chooses
-    "done". Closing the dialog saves nothing. The entry reloads after a save.
+    Each step is one form. Submit saves it and ends the flow. Closing the
+    dialog saves nothing. The entry reloads after a save.
     """
 
-    def __init__(self) -> None:
-        self._key: str | None = None
-        # Type overrides edited in this visit. None until the first edit.
-        self._pending: dict[str, dict[str, Any]] | None = None
-
-    def _pending_types(self) -> dict[str, dict[str, Any]]:
-        """Return the type overrides, with the edits of this visit."""
-        if self._pending is None:
-            self._pending = {
-                key: dict(conf)
-                for key, conf in (self.config_entry.options.get(CONF_TYPES) or {}).items()
-            }
-        return self._pending
-
-    def _current_types(self) -> dict[str, dict[str, Any]]:
-        """Return every type with the edits of this visit applied."""
-        pending = self._pending_types()
+    def _saved_types(self) -> dict[str, dict[str, Any]]:
+        """Return the saved type overrides."""
         return {
-            key: {**conf, **(pending.get(key) or {})}
-            for key, conf in (self.config_entry.data.get(CONF_TYPES) or {}).items()
+            key: dict(conf)
+            for key, conf in (self.config_entry.options.get(CONF_TYPES) or {}).items()
         }
 
-    @property
-    def _sl(self) -> bool:
-        return self.hass.config.language.lower().startswith("sl")
-
-    def _save(self, **changes: Any) -> ConfigFlowResult:
-        options = {**self.config_entry.options, **changes}
-        return self.async_create_entry(data=options)
+    def _current_types(self) -> dict[str, dict[str, Any]]:
+        """Return every type with its saved override applied."""
+        saved = self._saved_types()
+        return {
+            key: {**conf, **(saved.get(key) or {})}
+            for key, conf in (self.config_entry.data.get(CONF_TYPES) or {}).items()
+        }
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -402,76 +469,62 @@ class BinDayOptionsFlow(OptionsFlow):
     async def async_step_types(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Choose which waste type to edit, or save and close."""
+        """Edit all the types on one form, with one section for each type.
+
+        Only the first MAX_TYPES types get a section.
+        """
         types = self._current_types()
+        keys = ordered_keys(types)[:MAX_TYPES]
+        errors: dict[str, str] = {}
         if user_input is not None:
-            if user_input["type"] == _DONE:
-                return self.async_create_entry(
-                    data={**self.config_entry.options, CONF_TYPES: self._pending_types()}
-                )
-            self._key = user_input["type"]
-            return await self.async_step_type()
-        keys = ordered_keys(types)
-        options = [SelectOptionDict(value=key, label=types[key]["name"]) for key in keys]
-        options.append(
-            SelectOptionDict(value=_DONE, label=_DONE_LABEL["sl" if self._sl else "en"])
-        )
+            saved = self._saved_types()
+            for index, key in enumerate(keys):
+                values = user_input.get(type_slot(index)) or {}
+                error, result = _check_type(values)
+                if error:
+                    errors[type_slot(index)] = error
+                    continue
+                # Keep the saved override when nothing changed.
+                if any(types[key].get(k) != v for k, v in result.items()):
+                    saved[key] = result
+            if not errors:
+                options = dict(self.config_entry.options)
+                # Without a change, the options stay exactly as they were.
+                if saved or CONF_TYPES in options:
+                    options[CONF_TYPES] = saved
+                return self.async_create_entry(data=options)
+        fields: dict[Any, Any] = {}
+        suggested: dict[str, Any] = {}
+        for index, key in enumerate(keys):
+            slot = type_slot(index)
+            current = types[key]
+            fields[vol.Required(slot)] = section(
+                type_schema({k: current[k] for k in ("name", "icon", "color")}).extend(
+                    {
+                        vol.Required(
+                            "estimate", default=current.get("estimate", True)
+                        ): BooleanSelector(),
+                        vol.Optional("interval"): NumberSelector(
+                            NumberSelectorConfig(step=1, mode=NumberSelectorMode.BOX)
+                        ),
+                    }
+                ),
+                # A section with an error stays open, so the user sees it.
+                {"collapsed": slot not in errors},
+            )
+            if user_input is not None and slot in user_input:
+                suggested[slot] = user_input[slot]
+            elif current.get("interval") is not None:
+                suggested[slot] = {"interval": current["interval"]}
         return self.async_show_form(
             step_id="types",
-            data_schema=vol.Schema(
-                {
-                    vol.Required("type", default=keys[0]): SelectSelector(
-                        SelectSelectorConfig(
-                            options=options,
-                            mode=SelectSelectorMode.LIST,
-                            sort=False,
-                        )
-                    )
-                }
+            data_schema=self.add_suggested_values_to_schema(
+                vol.Schema(fields), suggested
             ),
-            last_step=False,
-        )
-
-    async def async_step_type(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Edit the name, icon, colour, estimate and interval of one type."""
-        assert self._key is not None
-        current = self._current_types()[self._key]
-        errors: dict[str, str] = {}
-        interval: int | None = None
-        if user_input is not None:
-            errors = validate_type(user_input)
-            raw = user_input.get("interval")
-            if raw is not None:
-                interval = int(raw) if float(raw).is_integer() else -1
-                if not INTERVAL_MIN <= interval <= INTERVAL_MAX:
-                    errors["interval"] = "invalid_interval"
-            if not errors:
-                result = type_result(user_input)
-                result["estimate"] = bool(user_input["estimate"])
-                result["interval"] = interval
-                self._pending_types()[self._key] = result
-                return await self.async_step_types()
-        schema = type_schema(
-            {k: current[k] for k in ("name", "icon", "color")}
-        ).extend(
-            {
-                vol.Required("estimate", default=current.get("estimate", True)): BooleanSelector(),
-                vol.Optional("interval"): NumberSelector(
-                    NumberSelectorConfig(step=1, mode=NumberSelectorMode.BOX)
-                ),
-            }
-        )
-        suggested = user_input
-        if suggested is None and current.get("interval") is not None:
-            suggested = {"interval": current["interval"]}
-        return self.async_show_form(
-            step_id="type",
-            data_schema=self.add_suggested_values_to_schema(schema, suggested),
-            description_placeholders={"type": current["name"]},
+            description_placeholders={
+                type_slot(index): types[key]["name"] for index, key in enumerate(keys)
+            },
             errors=errors,
-            last_step=False,
         )
 
     # ----- reminders -----
@@ -491,24 +544,23 @@ class BinDayOptionsFlow(OptionsFlow):
         wanted = self.config_entry.options.get(CONF_INITIAL_SWITCH_STATES) or {}
         return bool(wanted.get(key, REMINDERS[key][2]))
 
-    async def _apply_switches(self, user_input: dict[str, Any]) -> dict[str, bool]:
+    async def _apply_switches(self, wanted: dict[str, bool]) -> dict[str, bool]:
         """Set the existing reminder switches to the wanted states.
 
         Return the wanted states of the switches that do not exist yet.
         """
         missing: dict[str, bool] = {}
         for key in REMINDERS:
-            wanted = bool(user_input[_ON[key]])
             entity_id = self._switch_entity_id(key)
             if entity_id is None:
-                missing[key] = wanted
+                missing[key] = wanted[key]
                 continue
             state = self.hass.states.get(entity_id)
-            if state is not None and state.state == (STATE_ON if wanted else STATE_OFF):
+            if state is not None and state.state == (STATE_ON if wanted[key] else STATE_OFF):
                 continue
             await self.hass.services.async_call(
                 "switch",
-                "turn_on" if wanted else "turn_off",
+                "turn_on" if wanted[key] else "turn_off",
                 {"entity_id": entity_id},
                 blocking=True,
             )
@@ -517,30 +569,31 @@ class BinDayOptionsFlow(OptionsFlow):
     async def async_step_reminders(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Set the reminders, their targets and times."""
+        """Set the reminders, their targets and times.
+
+        Each reminder has a section with its switch and its time.
+        """
         options = self.config_entry.options
         offered = _offered_targets(self.hass)
-        errors: dict[str, str] = {}
         if user_input is not None:
             enabled = bool(user_input[CONF_REMINDERS_ENABLED])
             # Reminders on with no targets is valid: it means events only.
             chosen = list(user_input.get(CONF_NOTIFY_TARGETS, []))
-        if user_input is not None and not errors:
-            initial = await self._apply_switches(user_input)
+            wanted = {key: bool(user_input[key]["on"]) for key in REMINDERS}
+            initial = await self._apply_switches(wanted)
             if not enabled:
                 # Turning reminders off removes the switches. Keep every
                 # wanted state, so the switches come back as the user set them.
-                initial = {key: bool(user_input[_ON[key]]) for key in REMINDERS}
+                initial = wanted
             changes: dict[str, Any] = {
                 CONF_REMINDERS_ENABLED: enabled,
                 CONF_NOTIFY_TARGETS: chosen,
-                CONF_EVENING_TIME: _hhmm(user_input[CONF_EVENING_TIME]),
-                CONF_MORNING_TIME: _hhmm(user_input[CONF_MORNING_TIME]),
-                CONF_DAY_BEFORE_TIME: _hhmm(user_input[CONF_DAY_BEFORE_TIME]),
             }
+            for key in REMINDERS:
+                changes[_TIME_KEY[key]] = _hhmm(user_input[key]["time"])
             new = {**options, **changes}
             # Wanted states of switches that do not exist yet. Saved targets
-            # that are no longer offered are dropped above.
+            # that are no longer offered are dropped by the select.
             if initial:
                 new[CONF_INITIAL_SWITCH_STATES] = initial
             else:
@@ -553,47 +606,38 @@ class BinDayOptionsFlow(OptionsFlow):
         else:
             # Reminders off and no saved target: offer the phones.
             targets = phone_targets(self.hass)
-        schema = vol.Schema(
-            {
-                vol.Required(
-                    CONF_REMINDERS_ENABLED,
-                    default=options.get(CONF_REMINDERS_ENABLED, False),
-                ): BooleanSelector(),
-                vol.Optional(CONF_NOTIFY_TARGETS, default=targets): SelectSelector(
-                    SelectSelectorConfig(
-                        options=notify_targets(self.hass),
-                        multiple=True,
-                        mode=SelectSelectorMode.DROPDOWN,
-                    )
+        fields: dict[Any, Any] = {
+            vol.Required(
+                CONF_REMINDERS_ENABLED,
+                default=options.get(CONF_REMINDERS_ENABLED, False),
+            ): BooleanSelector(),
+            vol.Optional(CONF_NOTIFY_TARGETS, default=targets): SelectSelector(
+                SelectSelectorConfig(
+                    options=notify_targets(self.hass),
+                    multiple=True,
+                    mode=SelectSelectorMode.DROPDOWN,
+                    sort=False,
+                )
+            ),
+        }
+        for key in REMINDERS:
+            current = _hhmm(options.get(_TIME_KEY[key], _TIME_DEFAULT[key]))
+            fields[vol.Required(key)] = section(
+                vol.Schema(
+                    {
+                        vol.Required("on", default=self._switch_is_on(key)): BooleanSelector(),
+                        vol.Required("time", default=current): SelectSelector(
+                            SelectSelectorConfig(
+                                options=time_options(current),
+                                mode=SelectSelectorMode.DROPDOWN,
+                                sort=False,
+                            )
+                        ),
+                    }
                 ),
-                vol.Required(
-                    _ON[EVENING], default=self._switch_is_on(EVENING)
-                ): BooleanSelector(),
-                vol.Required(
-                    CONF_EVENING_TIME,
-                    default=options.get(CONF_EVENING_TIME, DEFAULT_EVENING_TIME),
-                ): TimeSelector(),
-                vol.Required(
-                    _ON[MORNING], default=self._switch_is_on(MORNING)
-                ): BooleanSelector(),
-                vol.Required(
-                    CONF_MORNING_TIME,
-                    default=options.get(CONF_MORNING_TIME, DEFAULT_MORNING_TIME),
-                ): TimeSelector(),
-                vol.Required(
-                    _ON[DAY_BEFORE], default=self._switch_is_on(DAY_BEFORE)
-                ): BooleanSelector(),
-                vol.Required(
-                    CONF_DAY_BEFORE_TIME,
-                    default=options.get(CONF_DAY_BEFORE_TIME, DEFAULT_DAY_BEFORE_TIME),
-                ): TimeSelector(),
-            }
-        )
-        return self.async_show_form(
-            step_id="reminders",
-            data_schema=self.add_suggested_values_to_schema(schema, user_input),
-            errors=errors,
-        )
+                {"collapsed": False},
+            )
+        return self.async_show_form(step_id="reminders", data_schema=vol.Schema(fields))
 
     # ----- general -----
 

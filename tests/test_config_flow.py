@@ -6,11 +6,13 @@ from unittest.mock import patch
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.util import slugify
 
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.bin_day.config_flow import phone_targets
+from custom_components.bin_day.config_flow import notify_targets, phone_targets
 from custom_components.bin_day.const import (
     CONF_ADDRESS_ID,
     CONF_ADDRESS_NAME,
@@ -55,7 +57,7 @@ async def _start(hass: HomeAssistant, matches=ADDRESSES):
 
 
 
-PHONES = [("iOS", "Anna iPhone"), ("android", "Ben Phone"), ("Windows", "Cat PC")]
+PHONES = [("iOS", "Phone A"), ("android", "Phone B"), ("Windows", "Laptop C")]
 OLD_DEFAULTS = {
     "mko": {
         "name": "Mixed waste",
@@ -85,15 +87,48 @@ async def _noop(call: ServiceCall) -> None:
     return None
 
 
-def _add_phones(hass: HomeAssistant, devices=PHONES, with_service=True) -> None:
-    """Fake mobile_app entries and, optionally, their notify actions."""
+def _add_phones(
+    hass: HomeAssistant,
+    devices=PHONES,
+    with_service=True,
+    linked=True,
+    names: dict[str, str] | None = None,
+) -> None:
+    """Fake mobile_app entries and, optionally, their notify actions.
+
+    Each device gets a device registry entry and a device tracker. When
+    `linked` is true, a person lists that tracker, so the device is a phone
+    of a person. `names` maps a device name to its name_by_user.
+    """
     for os_name, device_name in devices:
-        MockConfigEntry(
+        slug = slugify(device_name)
+        entry = MockConfigEntry(
             domain="mobile_app",
             data={"os_name": os_name, "device_name": device_name},
-        ).add_to_hass(hass)
+        )
+        entry.add_to_hass(hass)
+        device = dr.async_get(hass).async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={("mobile_app", slug)},
+            name=device_name,
+        )
+        if names and device_name in names:
+            dr.async_get(hass).async_update_device(
+                device.id, name_by_user=names[device_name]
+            )
+        tracker = er.async_get(hass).async_get_or_create(
+            "device_tracker",
+            "mobile_app",
+            slug,
+            config_entry=entry,
+            device_id=device.id,
+            suggested_object_id=slug,
+        )
+        if linked:
+            hass.states.async_set(
+                f"person.{slug}", "home", {"device_trackers": [tracker.entity_id]}
+            )
         if with_service:
-            slug = device_name.lower().replace(" ", "_")
             hass.services.async_register("notify", f"mobile_app_{slug}", _noop)
 
 
@@ -158,9 +193,9 @@ async def test_one_match_already_configured_aborts(hass: HomeAssistant) -> None:
 async def test_final_step_defaults(hass: HomeAssistant) -> None:
     _add_phones(hass)
     # A phone without a notify action and a notify action without a phone.
-    _add_phones(hass, [("iPadOS", "Dan Pad")], with_service=False)
+    _add_phones(hass, [("iPadOS", "Tablet D")], with_service=False)
     hass.services.async_register("notify", "send_message", _noop)
-    hass.services.async_register("notify", "mobile_app_cat_pc", _noop)
+    hass.services.async_register("notify", "mobile_app_laptop_c", _noop)
     result = await _to_final(hass)
     assert result["step_id"] == "name"
     assert result["last_step"] is not False
@@ -168,17 +203,18 @@ async def test_final_step_defaults(hass: HomeAssistant) -> None:
     assert _defaults(result) == {
         "types": ["mko", "emb", "bio"],
         "name": "Bin Day – LJUBLJANSKA CESTA 1 A",
-        CONF_NOTIFY_TARGETS: ["mobile_app_anna_iphone", "mobile_app_ben_phone"],
+        CONF_NOTIFY_TARGETS: ["mobile_app_phone_a", "mobile_app_phone_b"],
     }
     labels = {o["value"]: o["label"] for o in schema["types"].config["options"]}
     assert labels["bio"] == "Bio waste (no collection now)"
     assert labels["mko"] == "Mixed waste"
     assert schema["types"].config["sort"] is False
     offered = [o["value"] for o in schema[CONF_NOTIFY_TARGETS].config["options"]]
+    # The select lists the devices by their label: Laptop C, Phone A, Phone B.
     assert offered == [
-        "mobile_app_anna_iphone",
-        "mobile_app_ben_phone",
-        "mobile_app_cat_pc",
+        "mobile_app_laptop_c",
+        "mobile_app_phone_a",
+        "mobile_app_phone_b",
     ]
 
 
@@ -190,6 +226,52 @@ async def test_phone_targets_helper(hass: HomeAssistant) -> None:
         "mobile_app_amy",
         "mobile_app_pad",
         "mobile_app_zed",
+    ]
+
+
+async def test_phone_targets_exclude_device_without_person(hass: HomeAssistant) -> None:
+    _add_phones(hass, [("Android", "Wall panel")], linked=False)
+    assert phone_targets(hass) == []
+
+
+async def test_phone_targets_include_linked_iphone(hass: HomeAssistant) -> None:
+    _add_phones(hass, [("iOS", "Phone A")])
+    _add_phones(hass, [("Android", "Wall panel")], linked=False)
+    assert phone_targets(hass) == ["mobile_app_phone_a"]
+
+
+async def test_phone_targets_exclude_linked_macos(hass: HomeAssistant) -> None:
+    _add_phones(hass, [("macOS", "Laptop C")])
+    assert phone_targets(hass) == []
+
+
+async def test_phone_targets_exclude_phone_without_notify_action(
+    hass: HomeAssistant,
+) -> None:
+    _add_phones(hass, [("iOS", "Phone A")], with_service=False)
+    assert phone_targets(hass) == []
+
+
+async def test_notify_targets_label_uses_user_given_device_name(
+    hass: HomeAssistant,
+) -> None:
+    _add_phones(hass, [("iOS", "Phone A")], names={"Phone A": "Kitchen phone"})
+    hass.services.async_register("notify", "family_tablet", _noop)
+    options = notify_targets(hass)
+    assert {o["value"]: o["label"] for o in options} == {
+        "mobile_app_phone_a": "Kitchen phone",
+        "family_tablet": "family_tablet",
+    }
+    # Sorted by label, ignoring case.
+    assert [o["label"] for o in options] == ["family_tablet", "Kitchen phone"]
+
+
+async def test_notify_targets_label_falls_back_to_device_name(
+    hass: HomeAssistant,
+) -> None:
+    _add_phones(hass, [("iOS", "Phone A")])
+    assert notify_targets(hass) == [
+        {"value": "mobile_app_phone_a", "label": "Phone A"}
     ]
 
 
@@ -210,7 +292,7 @@ async def test_phones_turn_reminders_on(hass: HomeAssistant) -> None:
     options = result["result"].options
     assert options == {
         CONF_REMINDERS_ENABLED: True,
-        CONF_NOTIFY_TARGETS: ["mobile_app_anna_iphone", "mobile_app_ben_phone"],
+        CONF_NOTIFY_TARGETS: ["mobile_app_phone_a", "mobile_app_phone_b"],
     }
     entry = result["result"]
     assert entry.title == "Bin Day – LJUBLJANSKA CESTA 1 A"
@@ -225,12 +307,12 @@ async def test_chosen_targets_and_name(hass: HomeAssistant) -> None:
     result = await _to_final(hass)
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        {"name": "Moji smeti", CONF_NOTIFY_TARGETS: ["mobile_app_ben_phone"]},
+        {"name": "Moji smeti", CONF_NOTIFY_TARGETS: ["mobile_app_phone_b"]},
     )
     assert result["title"] == "Moji smeti"
     assert result["result"].options == {
         CONF_REMINDERS_ENABLED: True,
-        CONF_NOTIFY_TARGETS: ["mobile_app_ben_phone"],
+        CONF_NOTIFY_TARGETS: ["mobile_app_phone_b"],
     }
 
 
