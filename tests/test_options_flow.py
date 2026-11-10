@@ -762,6 +762,20 @@ async def test_options_reminders_prefill_phones_when_no_saved_targets(
     await unload(hass, entry)
 
 
+async def test_options_reminders_events_only_is_not_prefilled(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """A saved "events only" setup reopens with no phone selected."""
+    _fake_phones(hass)
+    entry = await _entry(
+        hass, freezer, {CONF_REMINDERS_ENABLED: True, CONF_NOTIFY_TARGETS: []}
+    )
+    result = await _menu(hass, entry, "reminders")
+    assert _target_default(result) == []
+    hass.config_entries.options.async_abort(result["flow_id"])
+    await unload(hass, entry)
+
+
 async def test_options_reminders_saved_targets_beat_phones(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:

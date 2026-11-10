@@ -547,8 +547,12 @@ class BinDayOptionsFlow(OptionsFlow):
                 new.pop(CONF_INITIAL_SWITCH_STATES, None)
             return self.async_create_entry(data=new)
         saved = options.get(CONF_NOTIFY_TARGETS) or []
-        # No saved target: offer the phones. The user can still clear them.
-        targets = [t for t in saved if t in offered] if saved else phone_targets(self.hass)
+        if saved or options.get(CONF_REMINDERS_ENABLED, False):
+            # Reminders on with no saved target is "events only": keep it.
+            targets = [t for t in saved if t in offered]
+        else:
+            # Reminders off and no saved target: offer the phones.
+            targets = phone_targets(self.hass)
         schema = vol.Schema(
             {
                 vol.Required(
