@@ -129,6 +129,7 @@ export function buildModel(input, lang) {
       title: input.title,
       state: "empty",
       accent: null,
+      tint: null,
       headline: null,
       rest: [],
       strip: [],
@@ -156,6 +157,9 @@ export function buildModel(input, lang) {
     title: input.title,
     state,
     accent: due ? { bg: first.color, fg: foreground(first.color) } : null,
+    // In two days: a light tint of the type colour, so the card stands out
+    // before the full accent of tomorrow.
+    tint: first.days === 2 ? first.color : null,
     headline: {
       names: group.map((i) => i.name),
       icon: first.icon,
@@ -370,9 +374,15 @@ if (globalThis.customElements && !customElements.get("bin-day-card")) {
         ? buildModel(input, lang)
         : buildModel({ ...input, today: "1970-01-01", types: [] }, lang);
       const a = model.accent;
-      const cardStyle = a
-        ? `background:${safeColor(a.bg)};color:${a.fg}`
-        : "background:var(--ha-card-background, var(--card-background-color));color:var(--primary-text-color)";
+      const base = "var(--ha-card-background, var(--card-background-color, #fff))";
+      let cardStyle;
+      if (a) cardStyle = `background:${safeColor(a.bg)};color:${a.fg}`;
+      else if (model.tint) {
+        const c = safeColor(model.tint);
+        cardStyle =
+          `background:color-mix(in srgb, ${c} 22%, ${base});` +
+          `border:2px solid color-mix(in srgb, ${c} 70%, transparent);color:var(--primary-text-color)`;
+      } else cardStyle = `background:${base};color:var(--primary-text-color)`;
       this.shadowRoot.innerHTML =
         `<style>${CSS}</style><ha-card style="${cardStyle}">` +
         renderHtml(model, !!this._config.hide_title, lang) +

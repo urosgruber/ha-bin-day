@@ -50,6 +50,19 @@ test("model: quiet day", () => {
   assert.equal(m.footnote, false);
 });
 
+test("model: in two days tint", () => {
+  const m = buildModel(input([type("emb", 2), type("mko", 5)]), "sl");
+  assert.equal(m.state, "quiet");
+  assert.equal(m.accent, null);
+  assert.equal(m.tint, "#ffdd00");
+  assert.equal(m.headline.relText, "čez 2 dni");
+});
+
+test("model: no tint at three days or tomorrow", () => {
+  assert.equal(buildModel(input([type("mko", 3)]), "sl").tint, null);
+  assert.equal(buildModel(input([type("mko", 1)]), "sl").tint, null);
+});
+
 test("model: tomorrow accent", () => {
   const m = buildModel(input([type("mko", 1), type("emb", 8)]), "sl");
   assert.equal(m.state, "tomorrow");
