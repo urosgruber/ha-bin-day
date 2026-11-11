@@ -10,6 +10,7 @@ const TEXTS = {
     today: "today",
     tomorrow: "tomorrow",
     inDays: (n) => `in ${n} days`,
+    nDays: (n) => `${n} ${n === 1 ? "day" : "days"}`,
     prefixToday: "TODAY",
     prefixTomorrow: "TOMORROW",
     until: (t) => `until ${t}`,
@@ -26,6 +27,11 @@ const TEXTS = {
     today: "danes",
     tomorrow: "jutri",
     inDays: (n) => `čez ${n} dni`,
+    // Slovene number forms: 1 dan, 2 dneva, 3 dnevi, 4 dnevi, 5 dni.
+    nDays: (n) => {
+      const r = n % 100;
+      return `${n} ${r === 1 ? "dan" : r === 2 ? "dneva" : r === 3 || r === 4 ? "dnevi" : "dni"}`;
+    },
     prefixToday: "DANES",
     prefixTomorrow: "JUTRI",
     until: (t) => `do ${t}`,
@@ -129,7 +135,6 @@ export function buildModel(input, lang) {
       title: input.title,
       state: "empty",
       accent: null,
-      tint: null,
       headline: null,
       rest: [],
       strip: [],
@@ -157,15 +162,14 @@ export function buildModel(input, lang) {
     title: input.title,
     state,
     accent: due ? { bg: first.color, fg: foreground(first.color) } : null,
-    // In two days: a light tint of the type colour, so the card stands out
-    // before the full accent of tomorrow.
-    tint: first.days === 2 ? first.color : null,
     headline: {
       names: group.map((i) => i.name),
       icon: first.icon,
       color: first.color,
       dateText: longDate(firstIso, group),
       relText: rel(first.days),
+      pillText: first.days === 0 ? t.today : first.days === 1 ? t.tomorrow : t.nDays(first.days),
+      relFg: foreground(first.color),
       prefix: state === "today" ? t.prefixToday : state === "tomorrow" ? t.prefixTomorrow : "",
     },
     rest: items
@@ -205,7 +209,8 @@ ha-card{padding:16px;text-align:left;height:100%;box-sizing:border-box}
 .ico{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none;background:rgba(255,255,255,.2)}
 .ico ha-icon{--mdc-icon-size:22px;width:22px;height:22px;margin:0;display:inline-flex}
 .big{font-size:17px;font-weight:600;line-height:1.25;overflow-wrap:anywhere}
-.sub{font-size:13px;opacity:.75}
+.sub{font-size:13px;display:flex;align-items:center;flex-wrap:wrap;gap:6px;color:color-mix(in srgb, currentColor 75%, transparent)}
+.pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600;line-height:18px;white-space:nowrap}
 .rest{font-size:13px;opacity:.75;margin-top:8px;padding-top:6px;border-top:1px solid rgba(127,127,127,.25);display:flex;align-items:center;gap:6px;overflow-wrap:anywhere}
 .strip{display:grid;gap:2px;margin-top:10px}
 .d{text-align:center;font-size:10px;opacity:.6}
@@ -224,14 +229,19 @@ function renderHtml(model, hideTitle, lang) {
   const due = model.state !== "quiet";
   const names = h.names.join(" + ");
   const big = due ? `${h.prefix} · ${names}` : names;
-  let sub;
-  if (due) sub = model.until ? `${h.dateText} · ${t.until(model.until)}` : h.dateText;
-  else sub = `${h.dateText} · ${h.relText}`;
   const c = safeColor(h.color);
+  // The pill shows the days until the collection. On a due day the card
+  // has the type colour, so the pill swaps the colours.
+  const pillStyle = due
+    ? `background:${h.relFg};color:${c}`
+    : `background:${c};color:${h.relFg}`;
+  const pill = `<span class="pill" style="${pillStyle}">${esc(h.pillText)}</span>`;
+  const dateText = due && model.until ? `${h.dateText} · ${t.until(model.until)}` : h.dateText;
+  const sub = `${esc(dateText)} ${pill}`;
   const icoStyle = due ? "" : `style="background:color-mix(in srgb, ${c} 20%, transparent);color:${c}"`;
   html +=
     `<div class="headline"><div class="ico" ${icoStyle}><ha-icon icon="${esc(h.icon)}"></ha-icon></div>` +
-    `<div><div class="big">${esc(big)}</div><div class="sub">${esc(sub)}</div></div></div>`;
+    `<div><div class="big">${esc(big)}</div><div class="sub">${sub}</div></div></div>`;
   for (const r of model.rest) {
     const color = due ? "inherit" : safeColor(r.color);
     html +=
@@ -374,15 +384,9 @@ if (globalThis.customElements && !customElements.get("bin-day-card")) {
         ? buildModel(input, lang)
         : buildModel({ ...input, today: "1970-01-01", types: [] }, lang);
       const a = model.accent;
-      const base = "var(--ha-card-background, var(--card-background-color, #fff))";
-      let cardStyle;
-      if (a) cardStyle = `background:${safeColor(a.bg)};color:${a.fg}`;
-      else if (model.tint) {
-        const c = safeColor(model.tint);
-        cardStyle =
-          `background:color-mix(in srgb, ${c} 22%, ${base});` +
-          `border:2px solid color-mix(in srgb, ${c} 70%, transparent);color:var(--primary-text-color)`;
-      } else cardStyle = `background:${base};color:var(--primary-text-color)`;
+      const cardStyle = a
+        ? `background:${safeColor(a.bg)};color:${a.fg}`
+        : "background:var(--ha-card-background, var(--card-background-color));color:var(--primary-text-color)";
       this.shadowRoot.innerHTML =
         `<style>${CSS}</style><ha-card style="${cardStyle}">` +
         renderHtml(model, !!this._config.hide_title, lang) +

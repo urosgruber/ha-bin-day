@@ -50,17 +50,16 @@ test("model: quiet day", () => {
   assert.equal(m.footnote, false);
 });
 
-test("model: in two days tint", () => {
-  const m = buildModel(input([type("emb", 2), type("mko", 5)]), "sl");
-  assert.equal(m.state, "quiet");
-  assert.equal(m.accent, null);
-  assert.equal(m.tint, "#ffdd00");
-  assert.equal(m.headline.relText, "čez 2 dni");
+test("model: pill shows only the number of days", () => {
+  const pill = (n, lang) => buildModel(input([type("mko", n)]), lang).headline.pillText;
+  assert.deepEqual([2, 3, 4, 5, 11].map((n) => pill(n, "sl")), ["2 dneva", "3 dnevi", "4 dnevi", "5 dni", "11 dni"]);
+  assert.equal(pill(2, "en"), "2 days");
+  assert.deepEqual([0, 1].map((n) => pill(n, "sl")), ["danes", "jutri"]);
 });
 
-test("model: no tint at three days or tomorrow", () => {
-  assert.equal(buildModel(input([type("mko", 3)]), "sl").tint, null);
-  assert.equal(buildModel(input([type("mko", 1)]), "sl").tint, null);
+test("model: pill text colour follows the type colour", () => {
+  assert.equal(buildModel(input([type("mko", 2)]), "sl").headline.relFg, "#ffffff");
+  assert.equal(buildModel(input([type("emb", 2)]), "sl").headline.relFg, "#1c1c1c");
 });
 
 test("model: tomorrow accent", () => {
