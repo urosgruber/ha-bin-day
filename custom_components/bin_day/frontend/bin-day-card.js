@@ -10,7 +10,9 @@ const TEXTS = {
     today: "today",
     tomorrow: "tomorrow",
     inDays: (n) => `in ${n} days`,
-    nDays: (n) => `${n} ${n === 1 ? "day" : "days"}`,
+    // inDays split in two: the word stays plain text, the pill holds the days.
+    inWord: "in",
+    nDays: (n) => `${n} days`,
     prefixToday: "TODAY",
     prefixTomorrow: "TOMORROW",
     until: (t) => `until ${t}`,
@@ -27,11 +29,9 @@ const TEXTS = {
     today: "danes",
     tomorrow: "jutri",
     inDays: (n) => `čez ${n} dni`,
-    // Slovene number forms: 1 dan, 2 dneva, 3 dnevi, 4 dnevi, 5 dni.
-    nDays: (n) => {
-      const r = n % 100;
-      return `${n} ${r === 1 ? "dan" : r === 2 ? "dneva" : r === 3 || r === 4 ? "dnevi" : "dni"}`;
-    },
+    // inDays split in two: the word stays plain text, the pill holds the days.
+    inWord: "čez",
+    nDays: (n) => `${n} dni`,
     prefixToday: "DANES",
     prefixTomorrow: "JUTRI",
     until: (t) => `do ${t}`,
@@ -168,6 +168,7 @@ export function buildModel(input, lang) {
       color: first.color,
       dateText: longDate(firstIso, group),
       relText: rel(first.days),
+      pillWord: first.days >= 2 ? t.inWord : "",
       pillText: first.days === 0 ? t.today : first.days === 1 ? t.tomorrow : t.nDays(first.days),
       relFg: foreground(first.color),
       prefix: state === "today" ? t.prefixToday : state === "tomorrow" ? t.prefixTomorrow : "",
@@ -237,7 +238,8 @@ function renderHtml(model, hideTitle, lang) {
     : `background:${c};color:${h.relFg}`;
   const pill = `<span class="pill" style="${pillStyle}">${esc(h.pillText)}</span>`;
   const dateText = due && model.until ? `${h.dateText} · ${t.until(model.until)}` : h.dateText;
-  const sub = `${esc(dateText)} ${pill}`;
+  const word = h.pillWord ? `<span>${esc(h.pillWord)}</span>` : "";
+  const sub = `<span>${esc(dateText)} ·</span>${word}${pill}`;
   const icoStyle = due ? "" : `style="background:color-mix(in srgb, ${c} 20%, transparent);color:${c}"`;
   html +=
     `<div class="headline"><div class="ico" ${icoStyle}><ha-icon icon="${esc(h.icon)}"></ha-icon></div>` +

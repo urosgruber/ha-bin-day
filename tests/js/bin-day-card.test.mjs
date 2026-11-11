@@ -52,9 +52,12 @@ test("model: quiet day", () => {
 
 test("model: pill shows only the number of days", () => {
   const pill = (n, lang) => buildModel(input([type("mko", n)]), lang).headline.pillText;
-  assert.deepEqual([2, 3, 4, 5, 11].map((n) => pill(n, "sl")), ["2 dneva", "3 dnevi", "4 dnevi", "5 dni", "11 dni"]);
+  assert.deepEqual([2, 3, 5, 11].map((n) => pill(n, "sl")), ["2 dni", "3 dni", "5 dni", "11 dni"]);
   assert.equal(pill(2, "en"), "2 days");
   assert.deepEqual([0, 1].map((n) => pill(n, "sl")), ["danes", "jutri"]);
+  const word = (n, lang) => buildModel(input([type("mko", n)]), lang).headline.pillWord;
+  assert.deepEqual([0, 1, 2].map((n) => word(n, "sl")), ["", "", "čez"]);
+  assert.equal(word(2, "en"), "in");
 });
 
 test("model: pill text colour follows the type colour", () => {
